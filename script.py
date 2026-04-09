@@ -323,11 +323,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
             for(let i=0; i<answers.length; i++) {
                 let inp = tInputs[i];
                 inp.dispatchEvent(new Event('focus', {bubbles: true}));
-                if(inp.tagName === 'INPUT' || inp.tagName === 'TEXTAREA') {
-                    inp.value = answers[i];
-                } else {
-                    inp.innerText = answers[i];
-                }
+                if(inp.tagName === 'INPUT' || inp.tagName === 'TEXTAREA') { inp.value = answers[i]; } else { inp.innerText = answers[i]; }
                 ['input', 'change', 'blur'].forEach(evt => inp.dispatchEvent(new Event(evt, {bubbles: true})));
                 doneCount++;
                 await new Promise(r => setTimeout(r, 200));
@@ -352,24 +348,39 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
             if(solvedAny) { callback(doneCount > 0); return; }
         }
         
-        // ESTRATEGIA 5: MULTIPLE CHOICE (RADIO)
-        let blocks = Array.from(document.querySelectorAll('.radiogroup, .multiple-choice, fieldset')).filter(e => e.offsetParent !== null);
-        if (blocks.length > 0) {
-            let solvedAny = false;
-            let limit = Math.min(blocks.length, answers.length);
-            for(let i=0; i<limit; i++) {
-                let ansLow = answers[i].trim().toLowerCase();
-                let opt = Array.from(blocks[i].querySelectorAll('label, button, [role="radio"]')).find(e => (e.innerText||"").trim().toLowerCase() === ansLow);
-                if (opt) {
-                    supremeClick(opt); opt.click();
-                    doneCount++; solvedAny = true;
-                    await new Promise(r => setTimeout(r, 200));
+        // ESTRATEGIA 5: MULTIPLE CHOICE / CHECKBOXES (¡AGRESIVA!)
+        // Buscamos cualquier elemento que contenga el texto de alguna de las respuestas
+        let allPotential = Array.from(document.querySelectorAll('label, button, [role="radio"], [role="checkbox"], .option, .choice')).filter(e => e.offsetParent !== null);
+        let solvedAnyMC = false;
+        
+        for (let i = 0; i < answers.length; i++) {
+            let ansLow = answers[i].trim().toLowerCase().replace(/\s+/g, ' ');
+            let target = allPotential.find(e => {
+                let text = (e.innerText || "").trim().toLowerCase().replace(/\s+/g, ' ');
+                return text === ansLow || (text.includes(ansLow) && text.length < ansLow.length + 10);
+            });
+            
+            if (target) {
+                // Verificar si ya está seleccionado (para evitar desmarcar checkboxes)
+                let isChecked = target.classList.contains('selected') || target.classList.contains('active') || 
+                                (target.querySelector('input') && target.querySelector('input').checked) ||
+                                target.getAttribute('aria-checked') === 'true';
+                
+                if (!isChecked) {
+                    supremeClick(target);
+                    target.click();
+                    doneCount++;
+                    solvedAnyMC = true;
+                    await new Promise(r => setTimeout(r, 300));
+                } else {
+                    // Ya estaba seleccionado, lo contamos como éxito
+                    doneCount++;
+                    solvedAnyMC = true;
                 }
             }
-            if(solvedAny) { callback(doneCount > 0); return; }
         }
         
-        callback(doneCount > 0);
+        callback(doneCount > 0 || solvedAnyMC);
     }
     fillFast();
     """
