@@ -278,7 +278,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 } else {
                     supremeClick(document.body); // click afuera para cerrar
                 }
-                await new Promise(r => setTimeout(r, 400)); 
+                await new Promise(r => setTimeout(r, 800)); // Antes 400
             }
             if(solvedAny) { callback(doneCount > 0); return; }
         }
@@ -345,7 +345,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 solvedAny = true;
                 doneCount++;
                 wordBankContainers = wordBankContainers.filter(w => w !== sourceItem);
-                await new Promise(r => setTimeout(r, 600));
+                await new Promise(r => setTimeout(r, 1000)); // Antes 600
             }
             
             if(solvedAny) { callback(doneCount > 0); return; }
@@ -484,7 +484,7 @@ def click_check_answers(driver, frame_elemento):
         
         if (btn) {
             supremeClick(btn);
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise(r => setTimeout(r, 2000)); // Antes 1500
             callback(true);
         } else {
             callback(false);
@@ -525,7 +525,7 @@ def click_forward(driver, frame_elemento):
         
         if (btn) {
             supremeClick(btn);
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise(r => setTimeout(r, 2500)); // Antes 1500
             callback(true);
         } else {
             callback(false);
@@ -805,7 +805,7 @@ def resolver_ejercicio(driver):
             print(f"     ⚠️ No se encontró botón Check Answers")
         
         # Paso 3: Avanzar
-        time.sleep(2)
+        time.sleep(3) # Antes 2
         next_ok = click_forward(driver, frame_elemento)
         if next_ok:
             print(f"     ➡️  Avanzando...")
@@ -813,7 +813,7 @@ def resolver_ejercicio(driver):
             # Intentar botón "Next" azul como fallback
             click_next_button_bottom(driver, frame_elemento)
         
-        time.sleep(2.5)
+        time.sleep(3.5) # Antes 2.5
         _, frame_elemento = get_ajax_data_directly(driver)
     
     # Verificar si llegamos a la pantalla de resultados
