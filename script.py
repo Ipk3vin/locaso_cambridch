@@ -287,21 +287,20 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
         // Cambridge One usa click en la palabra → se llena el siguiente gap vacío automáticamente
         let wordBankContainers = Array.from(document.querySelectorAll(
             'li.gap_match_gap_text_view, li[class*="gap_match_gap_text"], ' +
-            '[class*="gap_text_view"], [class*="wordpool"] li'
+            '[class*="gap_text_view"], [class*="wordpool"] li, ' +
+            '.drag_element, [class*="drag_element"], .draggable, .om-textgap-element'
         )).filter(e => e.offsetParent !== null);
         
         // Si no encontramos con selectores específicos, buscar patrón genérico de word bank
         if (wordBankContainers.length === 0) {
-            // Buscar contenedor con muchos elementos clickeables cortos al final de la página
-            let allLis = Array.from(document.querySelectorAll('li, [class*="drag"]')).filter(e => {
+            // Buscar elementos que tengan texto y parezcan botones de word bank
+            let allElements = Array.from(document.querySelectorAll('li, div, span, button')).filter(e => {
                 let text = (e.innerText || "").trim();
-                return e.offsetParent !== null && text.length > 0 && text.length < 40 && !text.includes('\\n');
+                let cls = (e.className || "");
+                let isWordBankCandidate = cls.includes('drag') || cls.includes('gap') || cls.includes('word') || cls.includes('option');
+                return e.offsetParent !== null && text.length > 0 && text.length < 40 && isWordBankCandidate;
             });
-            // Verificar que los textos coinciden con al menos algunas respuestas
-            let matchCount = allLis.filter(li => answers.some(a => a.trim().toLowerCase() === (li.innerText||"").trim().toLowerCase())).length;
-            if (matchCount >= answers.length * 0.5) {
-                wordBankContainers = allLis;
-            }
+            wordBankContainers = allElements;
         }
         
         if (wordBankContainers.length > 0) {
@@ -313,7 +312,8 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 // Encontrar el word bank item que contiene la respuesta
                 let sourceItem = wordBankContainers.find(item => {
                     let text = (item.innerText || "").trim().toLowerCase();
-                    return text === ansLow;
+                    // A veces el texto está en un span interno, innerText lo debería captar
+                    return text === ansLow || text.includes(ansLow) && text.length < ansLow.length + 5;
                 });
                 
                 if (!sourceItem) continue;
@@ -321,26 +321,24 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 // Buscar el elemento más interno clickeable (button, draggable content, etc.)
                 let clickTarget = sourceItem.querySelector('button') 
                                || sourceItem.querySelector('[class*="draggable__content"]')
-                               || sourceItem.querySelector('[class*="drag_element"]')
                                || sourceItem.querySelector('[class*="content"]')
+                               || sourceItem.querySelector('span')
                                || sourceItem;
                 
-                // Hacer click con múltiples métodos para asegurar que funcione
-                // Método 1: .click() nativo
+                // Clickear de forma exhaustiva
+                supremeClick(clickTarget);
                 clickTarget.click();
                 
-                // Método 2: supremeClick con full event chain
-                supremeClick(clickTarget);
-                
-                // Método 3: Si hay un button interno, clickearlo también
-                let innerBtn = sourceItem.querySelector('button');
-                if (innerBtn && innerBtn !== clickTarget) {
-                    innerBtn.click();
-                    supremeClick(innerBtn);
+                // Si hay un button, darle también
+                let btn = sourceItem.querySelector('button');
+                if (btn && btn !== clickTarget) {
+                   supremeClick(btn);
+                   btn.click();
                 }
                 
-                // Método 4: Click en el contenedor padre también
+                // El contenedor padre a veces es el que tiene el listener
                 supremeClick(sourceItem);
+                sourceItem.click();
                 
                 solvedAny = true;
                 doneCount++;
