@@ -18,38 +18,31 @@ import os
 # =========================================
 
 def get_ajax_data_directly(driver):
-    """Busca la variable global ajaxData en la memoria de la ventana o en sus iframes."""
+    """Busca la variable ajaxData ignorando copias viejas en memoria."""
+    # Intentar primero en el contexto principal
     try:
-        data = driver.execute_script("return typeof ajaxData !== 'undefined' ? JSON.stringify(ajaxData) : null;")
-        if data:
-            return json.loads(data), None
-    except:
-        pass
+        data = driver.execute_script("return (typeof ajaxData !== 'undefined' && ajaxData.LearningObjectInfo) ? JSON.stringify(ajaxData) : null;")
+        if data: return json.loads(data), None
+    except: pass
         
+    # Buscar en iframes, priorizando el que esté VISIBLE y tenga data nueva
     try:
-        # Intentamos obtener los iframes. Si falla aquí, es que la página cambió.
         iframes = driver.find_elements(By.TAG_NAME, "iframe")
-        for i in range(len(iframes)):
+        for iframe in iframes:
             try:
-                # Volvemos a pedir los iframes para asegurar que no sean stale
-                re_iframes = driver.find_elements(By.TAG_NAME, "iframe")
-                if i >= len(re_iframes): break
+                if not iframe.is_displayed(): continue # Saltar iframes ocultos (donde suele quedar data vieja)
                 
-                target_iframe = re_iframes[i]
-                driver.switch_to.frame(target_iframe)
-                data = driver.execute_script("return typeof ajaxData !== 'undefined' ? JSON.stringify(ajaxData) : null;")
-                
+                driver.switch_to.frame(iframe)
+                data = driver.execute_script("return (typeof ajaxData !== 'undefined' && ajaxData.LearningObjectInfo) ? JSON.stringify(ajaxData) : null;")
                 if data:
                     res = json.loads(data)
                     driver.switch_to.default_content()
-                    return res, target_iframe
-                
+                    return res, iframe
                 driver.switch_to.default_content()
-            except Exception:
+            except:
                 try: driver.switch_to.default_content()
                 except: pass
-    except Exception:
-        pass
+    except: pass
             
     return None, None
 
@@ -271,14 +264,13 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
         )).filter(e => e.offsetParent !== null);
         
         if (visualGaps.length > 0) {
-            let solvedAny = false;
-            let limit = Math.min(answers.length, visualGaps.length);
+            let solvedAnyWB = false;
             
-            for(let i = 0; i < limit; i++) {
+            for(let i = 0; i < answers.length; i++) {
                 let ansLow = answers[i].trim().toLowerCase().replace(/\s+/g, ' ');
                 
                 // 1. Encontrar la palabra en el banco
-                let wordItems = Array.from(document.querySelectorAll('li.gap_match_gap_text_view, .drag_element, .om-textgap-element, button, span')).filter(e => {
+                let wordItems = Array.from(document.querySelectorAll('.drag_element, .gap_match_drag, li.gap_match_gap_text_view, .om-textgap-element, button, span')).filter(e => {
                     let text = (e.innerText || "").trim().toLowerCase().replace(/\s+/g, ' ');
                     return e.offsetParent !== null && (text === ansLow || (text.includes(ansLow) && text.length < ansLow.length + 5));
                 });
@@ -287,34 +279,32 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                     return text === ansLow || text.includes(ansLow);
                 });
                 
-                if (targetWord && visualGaps[i]) {
-                    // SECUENCIA CRÍTICA: GAP -> WORD -> GAP
-                    
-                    // A. Click en GAP (Activar)
-                    supremeClick(visualGaps[i]);
-                    await new Promise(r => setTimeout(r, 250));
-                    
-                    // B. Click en PALABRA (Seleccionar - Debería ponerse naranja)
+                if (targetWord) {
+                    // INTENTO 1: Click directo en la palabra (Auto-placement de Cambridge)
                     supremeClick(targetWord);
-                    targetWord.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true, view: window}));
-                    await new Promise(r => setTimeout(r, 100));
-                    targetWord.dispatchEvent(new MouseEvent('mouseup', {bubbles: true, cancelable: true, view: window}));
                     targetWord.click();
-                    await new Promise(r => setTimeout(r, 400));
+                    await new Promise(r => setTimeout(r, 600));
                     
-                    // C. Click en GAP de nuevo (Confirmar inserción)
-                    supremeClick(visualGaps[i]);
-                    visualGaps[i].dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true, view: window}));
-                    await new Promise(r => setTimeout(r, 100));
-                    visualGaps[i].dispatchEvent(new MouseEvent('mouseup', {bubbles: true, cancelable: true, view: window}));
-                    visualGaps[i].click();
+                    // Verificación técnica: ¿Sigue la palabra ahí?
+                    let remains = targetWord.offsetParent !== null;
                     
-                    solvedAny = true;
+                    if (remains && visualGaps[i]) {
+                        // INTENTO 2: Secuencia Gap-Word-Gap si el anterior falló
+                        supremeClick(visualGaps[i]);
+                        await new Promise(r => setTimeout(r, 200));
+                        supremeClick(targetWord);
+                        targetWord.click();
+                        await new Promise(r => setTimeout(r, 300));
+                        supremeClick(visualGaps[i]);
+                        visualGaps[i].click();
+                        await new Promise(r => setTimeout(r, 600));
+                    }
+                    
+                    solvedAnyWB = true;
                     doneCount++;
-                    await new Promise(r => setTimeout(r, 1000)); 
                 }
             }
-            if(solvedAny) { callback(doneCount > 0); return; }
+            if(solvedAnyWB) { callback(doneCount > 0); return; }
         }
         
         // ESTRATEGIA 3: INPUTS DE TEXTO (TEXT ENTRY)
