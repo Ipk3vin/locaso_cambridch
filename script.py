@@ -230,42 +230,37 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
         console.log("Iniciando resolución...");
         
         // ESTRATEGIA 1: DROPDOWNS CUSTOMS (PRIORIDAD ALTA)
-        let drops = Array.from(document.querySelectorAll('span, div, button, a, [role="button"], [role="combobox"], [aria-haspopup]')).filter(e => {
-            let cls = (e.className || "").toLowerCase();
-            let attr = (e.getAttribute('aria-haspopup') || "").toLowerCase();
-            let role = (e.getAttribute('role') || "").toLowerCase();
-            let isClickable = cls.includes('gap') || cls.includes('select') || cls.includes('dropdown') || attr === 'true' || attr === 'listbox' || role === 'combobox' || role === 'button';
-            return isClickable && e.offsetParent !== null;
+        let drops = Array.from(document.querySelectorAll('.drop-label.listbox__label, [role="combobox"], [aria-haspopup]')).filter(e => {
+            return e.offsetParent !== null;
         });
-        drops = drops.filter(d => !drops.some(parent => parent !== d && parent.contains(d)));
         
         if (drops.length > 0) {
             let solvedAny = false;
             let limit = Math.min(drops.length, answers.length);
             for(let i=0; i<limit; i++) {
                 let drop = drops[i];
-                let ansLow = answers[i].trim().toLowerCase();
+                let ansLow = answers[i].trim().toLowerCase().replace(/\s+/g, ' ');
+                
                 supremeClick(drop);
                 drop.click(); 
-                await new Promise(r => setTimeout(r, 700));
+                await new Promise(r => setTimeout(r, 1000)); // Esperar a que abra la lista
                 
-                let opts = Array.from(document.querySelectorAll('span, div, li, option, a, [role="option"]')).filter(e => {
-                    if (e.offsetParent === null) return false;
+                let opts = Array.from(document.querySelectorAll('li.listbox__choice, [role="option"], .option-view')).filter(e => {
                     let text = (e.innerText || "").trim().toLowerCase().replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
                     let cleanAns = ansLow.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
                     return text === cleanAns || (text.includes(cleanAns) && text.length < cleanAns.length + 5);
                 });
                 
                 if (opts.length > 0) {
-                    opts.sort((a,b) => (window.getComputedStyle(b).cursor==='pointer'?1:0) - (window.getComputedStyle(a).cursor==='pointer'?1:0));
                     supremeClick(opts[0]);
                     opts[0].click();
                     solvedAny = true;
                     doneCount++;
                 } else {
+                    // Cerrar si no encontró nada para no bloquear el siguiente
                     supremeClick(document.body);
                 }
-                await new Promise(r => setTimeout(r, 500)); 
+                await new Promise(r => setTimeout(r, 600)); 
             }
             if(solvedAny) { callback(doneCount > 0); return; }
         }
