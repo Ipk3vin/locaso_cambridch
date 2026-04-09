@@ -360,6 +360,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
         
         // ESTRATEGIA 3: NATIVE SELECTS
         let selects = Array.from(document.querySelectorAll('select')).filter(e => e.offsetParent !== null);
+        if (selects.length > 0) {
             let solvedAny = false;
             let limit = Math.min(selects.length, answers.length);
             for(let i=0; i<limit; i++) {
