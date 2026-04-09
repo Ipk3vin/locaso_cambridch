@@ -271,19 +271,15 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
             '.drop_area, .gap_match_gap_view, .gap-element, [class*="gap-container"], .gap:not(input)'
         )).filter(e => e.offsetParent !== null);
         
-        let wordBankItems = Array.from(document.querySelectorAll(
-            '.drag_element, [class*="drag_element"], .om-textgap-element, .draggable, .has_drag, [class*="word"] button'
-        )).filter(e => e.offsetParent !== null);
-
         if (visualGaps.length > 0) {
             let solvedAny = false;
             let limit = Math.min(answers.length, visualGaps.length);
             
             for(let i = 0; i < limit; i++) {
-                let ansLow = answers[i].trim().toLowerCase();
+                let ansLow = answers[i].trim().toLowerCase().replace(/\s+/g, ' ');
                 
-                // 1. Encontrar la palabra
-                let wordItems = Array.from(document.querySelectorAll('.drag_element, .om-textgap-element, li[class*="drag"], button, span')).filter(e => {
+                // 1. Encontrar la palabra en el banco
+                let wordItems = Array.from(document.querySelectorAll('li.gap_match_gap_text_view, .drag_element, .om-textgap-element, button, span')).filter(e => {
                     let text = (e.innerText || "").trim().toLowerCase().replace(/\s+/g, ' ');
                     return e.offsetParent !== null && (text === ansLow || (text.includes(ansLow) && text.length < ansLow.length + 5));
                 });
@@ -293,16 +289,21 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 });
                 
                 if (targetWord && visualGaps[i]) {
-                    // Click en PALABRA (Mousedown + Mouseup)
+                    // SECUENCIA CRÍTICA: GAP -> WORD -> GAP
+                    
+                    // A. Click en GAP (Activar)
+                    supremeClick(visualGaps[i]);
+                    await new Promise(r => setTimeout(r, 250));
+                    
+                    // B. Click en PALABRA (Seleccionar - Debería ponerse naranja)
                     supremeClick(targetWord);
                     targetWord.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true, view: window}));
                     await new Promise(r => setTimeout(r, 100));
                     targetWord.dispatchEvent(new MouseEvent('mouseup', {bubbles: true, cancelable: true, view: window}));
                     targetWord.click();
-                    
                     await new Promise(r => setTimeout(r, 400));
                     
-                    // Click en GAP (Mousedown + Mouseup)
+                    // C. Click en GAP de nuevo (Confirmar inserción)
                     supremeClick(visualGaps[i]);
                     visualGaps[i].dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true, view: window}));
                     await new Promise(r => setTimeout(r, 100));
