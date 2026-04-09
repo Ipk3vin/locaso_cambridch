@@ -216,14 +216,18 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
     
     function supremeClick(el) {
         if(!el) return;
-        el.scrollIntoView({behavior: "smooth", block: "center"});
+        el.scrollIntoView({behavior: "auto", block: "center"});
         ['pointerover','pointerenter','pointerdown','mousedown','pointerup','mouseup','click'].forEach(evt => {
             el.dispatchEvent(new MouseEvent(evt, {bubbles:true, cancelable:true, view:window}));
         });
     }
 
+    // Hack para asegurar que el documento detecte foco (por si el usuario está en otra pestaña)
+    Object.defineProperty(document, 'hasFocus', { value: () => true, writable: true });
+
     async function fillFast() {
         let doneCount = 0;
+        console.log("Iniciando resolución...");
         
         // ESTRATEGIA 1: DROPDOWNS CUSTOMS (PRIORIDAD ALTA)
         let drops = Array.from(document.querySelectorAll('span, div, button, a, [role="button"], [role="combobox"], [aria-haspopup]')).filter(e => {
@@ -422,6 +426,7 @@ def click_check_answers(driver, frame_elemento):
         }
         
         let btn = document.querySelector('a.btn.btn-check') 
+               || document.querySelector('button.green-btn')
                || document.querySelector('a[data-event="check"]')
                || document.querySelector('button.btn-check')
                || document.querySelector('[class*="check"]');
@@ -430,7 +435,7 @@ def click_check_answers(driver, frame_elemento):
             let allBtns = Array.from(document.querySelectorAll('a, button, [role="button"]'));
             btn = allBtns.find(b => {
                 let text = (b.textContent || '').trim().toLowerCase();
-                return text.includes('check') && b.offsetParent !== null;
+                return (text.includes('check') || text.includes('validar')) && b.offsetParent !== null;
             });
         }
         
@@ -461,15 +466,17 @@ def click_forward(driver, frame_elemento):
         
         let btn = document.querySelector('a#btn_forward')
                || document.querySelector('a.btn.btn-next')
+               || document.querySelector('button.btn-next')
                || document.querySelector('a.btn.btn-forward')
                || document.querySelector('[data-action="forward"]');
         
         if (!btn) {
             let allBtns = Array.from(document.querySelectorAll('a, button, [role="button"]'));
             btn = allBtns.find(b => {
+                let text = (b.textContent || '').trim().toLowerCase();
                 let aria = (b.getAttribute('aria-label') || '').toLowerCase();
                 let cls = (b.className || '').toLowerCase();
-                return (aria.includes('forward') || aria.includes('next') || 
+                return (text === 'next' || aria.includes('forward') || aria.includes('next') || 
                         cls.includes('forward') || cls.includes('next')) && 
                        b.offsetParent !== null;
             });
