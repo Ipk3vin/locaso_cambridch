@@ -248,7 +248,9 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
         // ESTRATEGIA 2: DROPDOWNS CUSTOMS (CAMBRIDGE ONE)
         let drops = Array.from(document.querySelectorAll('span, div, button, a, [role="button"], [role="combobox"], [aria-haspopup]')).filter(e => {
             let cls = (e.className || "").toLowerCase();
-            let isClickable = cls.includes('gap') || cls.includes('select') || cls.includes('dropdown') || e.getAttribute('aria-haspopup') || e.getAttribute('role') === 'combobox';
+            let attr = (e.getAttribute('aria-haspopup') || "").toLowerCase();
+            let role = (e.getAttribute('role') || "").toLowerCase();
+            let isClickable = cls.includes('gap') || cls.includes('select') || cls.includes('dropdown') || attr === 'true' || attr === 'listbox' || role === 'combobox' || role === 'button';
             return isClickable && e.offsetParent !== null;
         });
         
@@ -261,24 +263,35 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
             for(let i=0; i<limit; i++) {
                 let drop = drops[i];
                 let ansLow = answers[i].trim().toLowerCase();
-                supremeClick(drop);
-                await new Promise(r => setTimeout(r, 450)); 
                 
-                let opts = Array.from(document.querySelectorAll('span, div, li, option')).filter(e => {
-                    let isVisible = e.offsetParent !== null;
-                    let match = (e.innerText||"").trim().toLowerCase() === ansLow;
-                    return isVisible && match && e.children.length <= 1;
+                // Abrir el dropdown
+                supremeClick(drop);
+                drop.click(); 
+                await new Promise(r => setTimeout(r, 600)); // Esperar a que abra
+                
+                // Buscar la opción por texto (robusto)
+                let opts = Array.from(document.querySelectorAll('span, div, li, option, a, [role="option"]')).filter(e => {
+                    if (e.offsetParent === null) return false;
+                    let text = (e.innerText || "").trim().toLowerCase();
+                    // Limpieza proactiva de &nbsp; y espacios raros
+                    text = text.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+                    let cleanAns = ansLow.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+                    
+                    return text === cleanAns || (text.includes(cleanAns) && text.length < cleanAns.length + 5);
                 });
                 
                 if (opts.length > 0) {
                     opts.sort((a,b) => (window.getComputedStyle(b).cursor==='pointer'?1:0) - (window.getComputedStyle(a).cursor==='pointer'?1:0));
-                    supremeClick(opts[0]);
+                    let targetOpt = opts[0];
+                    supremeClick(targetOpt);
+                    targetOpt.click();
                     solvedAny = true;
                     doneCount++;
                 } else {
-                    supremeClick(document.body); // click afuera para cerrar
+                    // Fallback: Si no se encontró la opción, intentar click afuera y reintentar con el siguiente
+                    supremeClick(document.body);
                 }
-                await new Promise(r => setTimeout(r, 800)); // Antes 400
+                await new Promise(r => setTimeout(r, 500)); 
             }
             if(solvedAny) { callback(doneCount > 0); return; }
         }
