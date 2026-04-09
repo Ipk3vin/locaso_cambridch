@@ -298,65 +298,61 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
         
         // ESTRATEGIA 2.5: WORD BANK / CLICK-TO-FILL (Gap Fill - Cambridge One)
         // Cambridge One usa click en la palabra → se llena el siguiente gap vacío automáticamente
+        // Pero para asegurar, intentaremos: Click GAP -> Click PALABRA
         let wordBankContainers = Array.from(document.querySelectorAll(
             'li.gap_match_gap_text_view, li[class*="gap_match_gap_text"], ' +
-            '[class*="gap_text_view"], [class*="wordpool"] li, ' +
-            '.drag_element, [class*="drag_element"], .draggable, .om-textgap-element'
+            '[class*="gap_text_view"], .drag_element, [class*="drag_element"], .draggable, .om-textgap-element, [class*="word"] button'
         )).filter(e => e.offsetParent !== null);
         
-        // Si no encontramos con selectores específicos, buscar patrón genérico de word bank
-        if (wordBankContainers.length === 0) {
-            // Buscar elementos que tengan texto y parezcan botones de word bank
-            let allElements = Array.from(document.querySelectorAll('li, div, span, button')).filter(e => {
-                let text = (e.innerText || "").trim();
-                let cls = (e.className || "");
-                let isWordBankCandidate = cls.includes('drag') || cls.includes('gap') || cls.includes('word') || cls.includes('option');
-                return e.offsetParent !== null && text.length > 0 && text.length < 40 && isWordBankCandidate;
-            });
-            wordBankContainers = allElements;
-        }
-        
+        let gaps = Array.from(document.querySelectorAll(
+            '.gap_match_gap_view, [class*="gap_view"], .gap-element, [class*="gap-container"], .gap'
+        )).filter(e => e.offsetParent !== null && !e.className.includes('text_view'));
+
         if (wordBankContainers.length > 0) {
             let solvedAny = false;
             
             for(let i = 0; i < answers.length; i++) {
                 let ansLow = answers[i].trim().toLowerCase();
                 
-                // Encontrar el word bank item que contiene la respuesta
-                let sourceItem = wordBankContainers.find(item => {
-                    let text = (item.innerText || "").trim().toLowerCase();
-                    // A veces el texto está en un span interno, innerText lo debería captar
-                    return text === ansLow || text.includes(ansLow) && text.length < ansLow.length + 5;
+                // 1. Opcional: Click en el gap de destino primero si existe
+                if (gaps[i]) {
+                    supremeClick(gaps[i]);
+                    await new Promise(r => setTimeout(r, 400));
+                }
+
+                // 2. Encontrar el word bank item que contiene la respuesta
+                // Buscamos de nuevo en cada iteración por si el DOM cambió
+                let currentItems = Array.from(document.querySelectorAll(
+                    'li, div, button, span, .drag_element, .om-textgap-element'
+                )).filter(e => {
+                    let text = (e.innerText || "").trim().toLowerCase().replace(/\s+/g, ' ');
+                    let isVisible = e.offsetParent !== null;
+                    let cls = (e.className || "");
+                    let isCandidate = cls.includes('drag') || cls.includes('gap') || cls.includes('word') || cls.includes('option') || e.tagName === 'BUTTON';
+                    return isVisible && isCandidate && (text === ansLow || text.includes(ansLow) && text.length < ansLow.length + 5);
+                });
+
+                let sourceItem = currentItems.find(item => {
+                    let text = (item.innerText || "").trim().toLowerCase().replace(/\s+/g, ' ');
+                    return text === ansLow || text.includes(ansLow);
                 });
                 
                 if (!sourceItem) continue;
                 
-                // Buscar el elemento más interno clickeable (button, draggable content, etc.)
+                // 3. Clickear la palabra
                 let clickTarget = sourceItem.querySelector('button') 
-                               || sourceItem.querySelector('[class*="draggable__content"]')
                                || sourceItem.querySelector('[class*="content"]')
                                || sourceItem.querySelector('span')
                                || sourceItem;
                 
-                // Clickear de forma exhaustiva
                 supremeClick(clickTarget);
                 clickTarget.click();
                 
-                // Si hay un button, darle también
-                let btn = sourceItem.querySelector('button');
-                if (btn && btn !== clickTarget) {
-                   supremeClick(btn);
-                   btn.click();
-                }
-                
-                // El contenedor padre a veces es el que tiene el listener
-                supremeClick(sourceItem);
-                sourceItem.click();
-                
                 solvedAny = true;
                 doneCount++;
-                wordBankContainers = wordBankContainers.filter(w => w !== sourceItem);
-                await new Promise(r => setTimeout(r, 1000)); // Antes 600
+                
+                // 4. ESPERAR SECUENCIALMENTE (Muy importante para no traslapar eventos)
+                await new Promise(r => setTimeout(r, 1200)); 
             }
             
             if(solvedAny) { callback(doneCount > 0); return; }
@@ -364,7 +360,6 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
         
         // ESTRATEGIA 3: NATIVE SELECTS
         let selects = Array.from(document.querySelectorAll('select')).filter(e => e.offsetParent !== null);
-        if (selects.length > 0) {
             let solvedAny = false;
             let limit = Math.min(selects.length, answers.length);
             for(let i=0; i<limit; i++) {
