@@ -21,19 +21,19 @@ def get_ajax_data_directly(driver):
     """Busca la variable ajaxData ignorando copias viejas en memoria."""
     # Intentar primero en el contexto principal
     try:
-        data = driver.execute_script("return (typeof ajaxData !== 'undefined' && ajaxData.LearningObjectInfo) ? JSON.stringify(ajaxData) : null;")
+        data = driver.execute_script("return (typeof ajaxData !== 'undefined') ? JSON.stringify(ajaxData) : null;")
         if data: return json.loads(data), None
     except: pass
         
-    # Buscar en iframes, priorizando el que esté VISIBLE y tenga data nueva
+    # Buscar en iframes, priorizando el que esté VISIBLE y tenga data
     try:
         iframes = driver.find_elements(By.TAG_NAME, "iframe")
         for iframe in iframes:
             try:
-                if not iframe.is_displayed(): continue # Saltar iframes ocultos (donde suele quedar data vieja)
+                if not iframe.is_displayed(): continue
                 
                 driver.switch_to.frame(iframe)
-                data = driver.execute_script("return (typeof ajaxData !== 'undefined' && ajaxData.LearningObjectInfo) ? JSON.stringify(ajaxData) : null;")
+                data = driver.execute_script("return (typeof ajaxData !== 'undefined') ? JSON.stringify(ajaxData) : null;")
                 if data:
                     res = json.loads(data)
                     driver.switch_to.default_content()
