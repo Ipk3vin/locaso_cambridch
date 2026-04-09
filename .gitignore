@@ -1,0 +1,6 @@
+.venv/
+BraveProfileBot/
+__pycache__/
+*.pyc
+resultado.json
+resultado.txt
