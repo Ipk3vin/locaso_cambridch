@@ -267,46 +267,51 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
         }
 
         // ESTRATEGIA 2: WORD BANK / GAP FILL (PRIORIDAD ALTA)
-        let wordBankContainers = Array.from(document.querySelectorAll(
-            '.drag_element, [class*="drag_element"], .om-textgap-element, .draggable, .has_drag, [class*="word"] button'
-        )).filter(e => e.offsetParent !== null);
-        
         let visualGaps = Array.from(document.querySelectorAll(
             '.drop_area, .gap_match_gap_view, .gap-element, [class*="gap-container"], .gap:not(input)'
         )).filter(e => e.offsetParent !== null);
+        
+        let wordBankItems = Array.from(document.querySelectorAll(
+            '.drag_element, [class*="drag_element"], .om-textgap-element, .draggable, .has_drag, [class*="word"] button'
+        )).filter(e => e.offsetParent !== null);
 
-        if (wordBankContainers.length > 0 || visualGaps.length > 0) {
+        if (visualGaps.length > 0) {
             let solvedAny = false;
-            let limit = Math.min(answers.length, Math.max(wordBankContainers.length, visualGaps.length));
+            let limit = Math.min(answers.length, visualGaps.length);
             
             for(let i = 0; i < limit; i++) {
-                if (i >= answers.length) break;
                 let ansLow = answers[i].trim().toLowerCase();
                 
-                // Click en el gap visual
-                if (visualGaps[i]) {
-                    supremeClick(visualGaps[i]);
-                    await new Promise(r => setTimeout(r, 500));
-                }
-
-                // Buscar palabra en el DOM actual
+                // 1. Encontrar la palabra
                 let wordItems = Array.from(document.querySelectorAll('.drag_element, .om-textgap-element, li[class*="drag"], button, span')).filter(e => {
                     let text = (e.innerText || "").trim().toLowerCase().replace(/\s+/g, ' ');
                     return e.offsetParent !== null && (text === ansLow || (text.includes(ansLow) && text.length < ansLow.length + 5));
                 });
-
                 let targetWord = wordItems.find(item => {
                     let text = (item.innerText || "").trim().toLowerCase().replace(/\s+/g, ' ');
                     return text === ansLow || text.includes(ansLow);
                 });
                 
-                if (targetWord) {
-                    let clickTarget = targetWord.querySelector('button') || targetWord.querySelector('span') || targetWord;
-                    supremeClick(clickTarget);
-                    clickTarget.click();
+                if (targetWord && visualGaps[i]) {
+                    // Click en PALABRA (Mousedown + Mouseup)
+                    supremeClick(targetWord);
+                    targetWord.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true, view: window}));
+                    await new Promise(r => setTimeout(r, 100));
+                    targetWord.dispatchEvent(new MouseEvent('mouseup', {bubbles: true, cancelable: true, view: window}));
+                    targetWord.click();
+                    
+                    await new Promise(r => setTimeout(r, 400));
+                    
+                    // Click en GAP (Mousedown + Mouseup)
+                    supremeClick(visualGaps[i]);
+                    visualGaps[i].dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true, view: window}));
+                    await new Promise(r => setTimeout(r, 100));
+                    visualGaps[i].dispatchEvent(new MouseEvent('mouseup', {bubbles: true, cancelable: true, view: window}));
+                    visualGaps[i].click();
+                    
                     solvedAny = true;
                     doneCount++;
-                    await new Promise(r => setTimeout(r, 1200)); 
+                    await new Promise(r => setTimeout(r, 1000)); 
                 }
             }
             if(solvedAny) { callback(doneCount > 0); return; }
