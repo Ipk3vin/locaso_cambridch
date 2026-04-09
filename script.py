@@ -216,6 +216,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
     
     function supremeClick(el) {
         if(!el) return;
+        el.scrollIntoView({behavior: "smooth", block: "center"});
         ['pointerover','pointerenter','pointerdown','mousedown','pointerup','mouseup','click'].forEach(evt => {
             el.dispatchEvent(new MouseEvent(evt, {bubbles:true, cancelable:true, view:window}));
         });
@@ -224,28 +225,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
     async function fillFast() {
         let doneCount = 0;
         
-        // ESTRATEGIA 1: INPUTS DE TEXTO (TEXT ENTRY)
-        let tInputs = Array.from(document.querySelectorAll('input[type="text"], input[type="number"], input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]), textarea, [contenteditable="true"]')).filter(e => e.offsetParent !== null);
-        if (tInputs.length > 0 && tInputs.length >= answers.length) {
-            for(let i=0; i<answers.length; i++) {
-                let ansLow = answers[i];
-                let inp = tInputs[i];
-                inp.dispatchEvent(new Event('focus', {bubbles: true}));
-                if(inp.tagName === 'INPUT' || inp.tagName === 'TEXTAREA') {
-                    inp.value = ""; inp.value = ansLow;
-                } else {
-                    inp.innerText = ansLow;
-                }
-                inp.dispatchEvent(new Event('input', {bubbles: true}));
-                inp.dispatchEvent(new Event('change', {bubbles: true}));
-                inp.dispatchEvent(new Event('blur', {bubbles: true}));
-                doneCount++;
-                await new Promise(r => setTimeout(r, 100));
-            }
-            callback(doneCount > 0); return;
-        }
-        
-        // ESTRATEGIA 2: DROPDOWNS CUSTOMS (CAMBRIDGE ONE)
+        // ESTRATEGIA 1: DROPDOWNS CUSTOMS (PRIORIDAD ALTA)
         let drops = Array.from(document.querySelectorAll('span, div, button, a, [role="button"], [role="combobox"], [aria-haspopup]')).filter(e => {
             let cls = (e.className || "").toLowerCase();
             let attr = (e.getAttribute('aria-haspopup') || "").toLowerCase();
@@ -253,176 +233,135 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
             let isClickable = cls.includes('gap') || cls.includes('select') || cls.includes('dropdown') || attr === 'true' || attr === 'listbox' || role === 'combobox' || role === 'button';
             return isClickable && e.offsetParent !== null;
         });
-        
-        // Limpiamos anidados
         drops = drops.filter(d => !drops.some(parent => parent !== d && parent.contains(d)));
         
         if (drops.length > 0) {
-            let limit = Math.min(drops.length, answers.length);
             let solvedAny = false;
+            let limit = Math.min(drops.length, answers.length);
             for(let i=0; i<limit; i++) {
                 let drop = drops[i];
                 let ansLow = answers[i].trim().toLowerCase();
-                
-                // Abrir el dropdown
                 supremeClick(drop);
                 drop.click(); 
-                await new Promise(r => setTimeout(r, 600)); // Esperar a que abra
+                await new Promise(r => setTimeout(r, 700));
                 
-                // Buscar la opción por texto (robusto)
                 let opts = Array.from(document.querySelectorAll('span, div, li, option, a, [role="option"]')).filter(e => {
                     if (e.offsetParent === null) return false;
-                    let text = (e.innerText || "").trim().toLowerCase();
-                    // Limpieza proactiva de &nbsp; y espacios raros
-                    text = text.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+                    let text = (e.innerText || "").trim().toLowerCase().replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
                     let cleanAns = ansLow.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
-                    
                     return text === cleanAns || (text.includes(cleanAns) && text.length < cleanAns.length + 5);
                 });
                 
                 if (opts.length > 0) {
                     opts.sort((a,b) => (window.getComputedStyle(b).cursor==='pointer'?1:0) - (window.getComputedStyle(a).cursor==='pointer'?1:0));
-                    let targetOpt = opts[0];
-                    supremeClick(targetOpt);
-                    targetOpt.click();
+                    supremeClick(opts[0]);
+                    opts[0].click();
                     solvedAny = true;
                     doneCount++;
                 } else {
-                    // Fallback: Si no se encontró la opción, intentar click afuera y reintentar con el siguiente
                     supremeClick(document.body);
                 }
                 await new Promise(r => setTimeout(r, 500)); 
             }
             if(solvedAny) { callback(doneCount > 0); return; }
         }
-        
-        // ESTRATEGIA 2.5: WORD BANK / CLICK-TO-FILL (Gap Fill - Cambridge One)
-        // Cambridge One usa click en la palabra → se llena el siguiente gap vacío automáticamente
-        // Pero para asegurar, intentaremos: Click GAP -> Click PALABRA
+
+        // ESTRATEGIA 2: WORD BANK / GAP FILL (PRIORIDAD ALTA)
         let wordBankContainers = Array.from(document.querySelectorAll(
-            'li.gap_match_gap_text_view, li[class*="gap_match_gap_text"], ' +
-            '[class*="gap_text_view"], .drag_element, [class*="drag_element"], .draggable, .om-textgap-element, [class*="word"] button'
+            '.drag_element, [class*="drag_element"], .om-textgap-element, .draggable, .has_drag, [class*="word"] button'
         )).filter(e => e.offsetParent !== null);
         
-        let gaps = Array.from(document.querySelectorAll(
-            '.gap_match_gap_view, [class*="gap_view"], .gap-element, [class*="gap-container"], .gap'
-        )).filter(e => e.offsetParent !== null && !e.className.includes('text_view'));
+        let visualGaps = Array.from(document.querySelectorAll(
+            '.drop_area, .gap_match_gap_view, .gap-element, [class*="gap-container"], .gap:not(input)'
+        )).filter(e => e.offsetParent !== null);
 
-        if (wordBankContainers.length > 0) {
+        if (wordBankContainers.length > 0 || visualGaps.length > 0) {
             let solvedAny = false;
+            let limit = Math.min(answers.length, Math.max(wordBankContainers.length, visualGaps.length));
             
-            for(let i = 0; i < answers.length; i++) {
+            for(let i = 0; i < limit; i++) {
+                if (i >= answers.length) break;
                 let ansLow = answers[i].trim().toLowerCase();
                 
-                // 1. Opcional: Click en el gap de destino primero si existe
-                if (gaps[i]) {
-                    supremeClick(gaps[i]);
-                    await new Promise(r => setTimeout(r, 400));
+                // Click en el gap visual
+                if (visualGaps[i]) {
+                    supremeClick(visualGaps[i]);
+                    await new Promise(r => setTimeout(r, 500));
                 }
 
-                // 2. Encontrar el word bank item que contiene la respuesta
-                // Buscamos de nuevo en cada iteración por si el DOM cambió
-                let currentItems = Array.from(document.querySelectorAll(
-                    'li, div, button, span, .drag_element, .om-textgap-element'
-                )).filter(e => {
+                // Buscar palabra en el DOM actual
+                let wordItems = Array.from(document.querySelectorAll('.drag_element, .om-textgap-element, li[class*="drag"], button, span')).filter(e => {
                     let text = (e.innerText || "").trim().toLowerCase().replace(/\s+/g, ' ');
-                    let isVisible = e.offsetParent !== null;
-                    let cls = (e.className || "");
-                    let isCandidate = cls.includes('drag') || cls.includes('gap') || cls.includes('word') || cls.includes('option') || e.tagName === 'BUTTON';
-                    return isVisible && isCandidate && (text === ansLow || text.includes(ansLow) && text.length < ansLow.length + 5);
+                    return e.offsetParent !== null && (text === ansLow || (text.includes(ansLow) && text.length < ansLow.length + 5));
                 });
 
-                let sourceItem = currentItems.find(item => {
+                let targetWord = wordItems.find(item => {
                     let text = (item.innerText || "").trim().toLowerCase().replace(/\s+/g, ' ');
                     return text === ansLow || text.includes(ansLow);
                 });
                 
-                if (!sourceItem) continue;
-                
-                // 3. Clickear la palabra
-                let clickTarget = sourceItem.querySelector('button') 
-                               || sourceItem.querySelector('[class*="content"]')
-                               || sourceItem.querySelector('span')
-                               || sourceItem;
-                
-                supremeClick(clickTarget);
-                clickTarget.click();
-                
-                solvedAny = true;
-                doneCount++;
-                
-                // 4. ESPERAR SECUENCIALMENTE (Muy importante para no traslapar eventos)
-                await new Promise(r => setTimeout(r, 1200)); 
+                if (targetWord) {
+                    let clickTarget = targetWord.querySelector('button') || targetWord.querySelector('span') || targetWord;
+                    supremeClick(clickTarget);
+                    clickTarget.click();
+                    solvedAny = true;
+                    doneCount++;
+                    await new Promise(r => setTimeout(r, 1200)); 
+                }
             }
-            
             if(solvedAny) { callback(doneCount > 0); return; }
         }
         
-        // ESTRATEGIA 3: NATIVE SELECTS
+        // ESTRATEGIA 3: INPUTS DE TEXTO (TEXT ENTRY)
+        let tInputs = Array.from(document.querySelectorAll('input[type="text"], input[type="number"], textarea, [contenteditable="true"]')).filter(e => e.offsetParent !== null && e.readOnly !== true && e.disabled !== true);
+        if (tInputs.length > 0 && tInputs.length >= answers.length) {
+            for(let i=0; i<answers.length; i++) {
+                let inp = tInputs[i];
+                inp.dispatchEvent(new Event('focus', {bubbles: true}));
+                if(inp.tagName === 'INPUT' || inp.tagName === 'TEXTAREA') {
+                    inp.value = answers[i];
+                } else {
+                    inp.innerText = answers[i];
+                }
+                ['input', 'change', 'blur'].forEach(evt => inp.dispatchEvent(new Event(evt, {bubbles: true})));
+                doneCount++;
+                await new Promise(r => setTimeout(r, 200));
+            }
+            callback(doneCount > 0); return;
+        }
+        
+        // ESTRATEGIA 4: NATIVE SELECTS
         let selects = Array.from(document.querySelectorAll('select')).filter(e => e.offsetParent !== null);
         if (selects.length > 0) {
             let solvedAny = false;
             let limit = Math.min(selects.length, answers.length);
             for(let i=0; i<limit; i++) {
-                let sel = selects[i];
                 let ansLow = answers[i].trim().toLowerCase();
-                let matchedOpt = Array.from(sel.options).find(o => o.innerText.trim().toLowerCase() === ansLow);
-                if (matchedOpt) {
-                    sel.value = matchedOpt.value;
-                    sel.dispatchEvent(new Event('change', {bubbles: true}));
-                    doneCount++;
-                    solvedAny = true;
+                let opt = Array.from(selects[i].options).find(o => o.innerText.trim().toLowerCase() === ansLow);
+                if (opt) {
+                    selects[i].value = opt.value;
+                    selects[i].dispatchEvent(new Event('change', {bubbles: true}));
+                    doneCount++; solvedAny = true;
                 }
             }
             if(solvedAny) { callback(doneCount > 0); return; }
         }
         
-        // ESTRATEGIA 4: MULTIPLE CHOICE POR BLOQUES ESTRICTOS (RADIO BUTTONS)
-        let blocks = Array.from(document.querySelectorAll('.qti-choiceInteraction, fieldset, .question-container, .multiple-choice, .radiogroup')).filter(e => e.offsetParent !== null);
+        // ESTRATEGIA 5: MULTIPLE CHOICE (RADIO)
+        let blocks = Array.from(document.querySelectorAll('.radiogroup, .multiple-choice, fieldset')).filter(e => e.offsetParent !== null);
         if (blocks.length > 0) {
             let solvedAny = false;
             let limit = Math.min(blocks.length, answers.length);
             for(let i=0; i<limit; i++) {
-                let block = blocks[i];
                 let ansLow = answers[i].trim().toLowerCase();
-                let opts = Array.from(block.querySelectorAll('label, div, span, button')).filter(e => e.children.length <= 2 && (e.innerText||"").trim().toLowerCase() === ansLow);
-                if (opts.length > 0) {
-                    opts.sort((a,b) => (b.tagName==='LABEL'?1:0) - (a.tagName==='LABEL'?1:0));
-                    supremeClick(opts[0]);
-                    let internalInput = opts[0].querySelector('input');
-                    if (internalInput) supremeClick(internalInput);
-                    doneCount++;
-                    solvedAny = true;
-                    await new Promise(r => setTimeout(r, 150));
+                let opt = Array.from(blocks[i].querySelectorAll('label, button, [role="radio"]')).find(e => (e.innerText||"").trim().toLowerCase() === ansLow);
+                if (opt) {
+                    supremeClick(opt); opt.click();
+                    doneCount++; solvedAny = true;
+                    await new Promise(r => setTimeout(r, 200));
                 }
             }
             if(solvedAny) { callback(doneCount > 0); return; }
-        }
-        
-        // ESTRATEGIA 5: FALLBACK (Búsqueda Greedy Global para Click-to-Fill sueltos)
-        let allNodes = Array.from(document.querySelectorAll('span, div, button, li, label, p, a'));
-        for(let ans of answers) {
-            if(!ans) continue;
-            let ansLower = ans.trim().toLowerCase();
-            let candidates = allNodes.filter(e => e.children.length <= 2 && (e.innerText||"").trim().toLowerCase() === ansLower);
-            
-            candidates.sort((a,b) => {
-                let scoreA = (a.tagName==='LABEL'||a.tagName==='BUTTON'||a.className.includes('choice')||a.className.includes('option')||a.className.includes('radio'))?1:0;
-                let scoreB = (b.tagName==='LABEL'||b.tagName==='BUTTON'||b.className.includes('choice')||b.className.includes('option')||b.className.includes('radio'))?1:0;
-                return scoreB - scoreA;
-            });
-            
-            if(candidates.length > 0) {
-                let target = candidates[0];
-                supremeClick(target);
-                if(target.tagName === 'LABEL') {
-                    let inp = target.querySelector('input');
-                    if(inp) supremeClick(inp);
-                }
-                allNodes = allNodes.filter(n => n !== target);
-                doneCount++;
-                await new Promise(r => setTimeout(r, 200));
-            }
         }
         
         callback(doneCount > 0);
@@ -445,7 +384,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 return False
         
     # Usamos execute_async_script para que Python se congele hasta que los clics JS terminen secuencialmente
-    driver.set_script_timeout(10) # 10 segundos maximo de espera
+    driver.set_script_timeout(20) # Antes 10, ahora 20 por el scroll
     try:
         exito = driver.execute_async_script(js_code, respuestas_planas)
     except Exception as e:
@@ -774,7 +713,15 @@ def resolver_ejercicio(driver):
     
     total = len(estructura)
     con_respuestas = sum(1 for r in respuestas_por_pantalla if r)
-    print(f"🏆 {total} pantallas, {con_respuestas} con respuestas")
+    print(f"🏆 {total} pantallas detectadas")
+    
+    # Pre-scrolling para asegurar que todo cargue
+    try: driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+    except: pass
+    time.sleep(1)
+    try: driver.execute_script("window.scrollTo(0, 0);")
+    except: pass
+    time.sleep(1)
     
     # ===== AUTO-RESOLVER TODAS LAS PANTALLAS =====
     for idx in range(total):
