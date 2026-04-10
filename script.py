@@ -747,19 +747,17 @@ def resolver_ejercicio(driver):
             print(f"     [{i}] {r}")
         
         # --- CÓDIGO DE AUTOMATIZACIÓN COMENTADO (A PETICIÓN) ---
-        """
         # Paso 1: Llenar respuestas
-        time.sleep(1)
-        exito = resolver_pantalla_js(driver, frame_elemento, respuestas)
+        # time.sleep(1)
+        # exito = resolver_pantalla_js(driver, frame_elemento, respuestas)
         
         # Paso 2: Click en Check Answers
-        time.sleep(1.5)
-        check_ok = click_check_answers(driver, frame_elemento)
+        # time.sleep(1.5)
+        # check_ok = click_check_answers(driver, frame_elemento)
         
         # Paso 3: Avanzar
-        time.sleep(3)
-        next_ok = click_forward(driver, frame_elemento)
-        """
+        # time.sleep(3) # Antes 2
+        # next_ok = click_forward(driver, frame_elemento)
         
         input("\n     ✅ Respuestas mostradas. Presiona ENTER para ver la siguiente...")
         # Intentamos obtener el frame de nuevo por si cambió al avanzar manualmente
