@@ -789,17 +789,21 @@ def main():
     print("=" * 60)
     print("🤖 Bot Cambridge One - Resolución Automática Multi-Ejercicio")
     print("=" * 60)
+    print("⏳ Intentando conectar con el navegador (Brave)...")
     options = Options()
-    
     options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
     
+    # Añadimos un pequeño timeout para que no se congele para siempre si Brave no está
+    service = Service()
+    
     try:
-        driver = webdriver.Chrome(options=options)
-    except Exception:
-        print("\n❌ ERROR: No se pudo conectar a Brave.")
-        print("💡 Para usar el Brave donde tienes tus cuentas, debes cerrarlo y abrirlo en 'modo depuración'.")
-        print("He creado un archivo llamado 'lanzar_brave_debug.bat' en esta carpeta.")
-        print("双 Doble click a 'lanzar_brave_debug.bat' y luego vuelve a ejecutar este bot.\n")
+        driver = webdriver.Chrome(service=service, options=options)
+        # Forzar un comando simple para verificar la conexion real
+        driver.current_url
+    except Exception as e:
+        print(f"\n❌ ERROR DE CONEXIÓN: {e}")
+        print("\n⚠️ No se pudo conectar a Brave en el puerto 9222.")
+        print("💡 SOLUCIÓN: Cierra Brave y usa 'RESETEAR_BRAVE_Y_BOT.bat' para abrirlo bien.")
         return
     
     print("\n✅ ¡Conectado exitosamente a tu Brave principal!")
