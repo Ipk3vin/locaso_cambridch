@@ -808,12 +808,10 @@ def main():
     print("3) Manten abierta esta consola.\n")
 
     while True:
-        accion = input("\n📝 Presiona ENTER para resolver TODOS los ejercicios automáticamente (o 'q' para salir): ").strip()
-        if accion.lower() == 'q':
-            break
+        input("\n📝 Presiona ENTER para extraer las respuestas de la pestaña actual (o Ctrl+C para salir)...")
         
         os.system('cls' if os.name == 'nt' else 'clear')
-        print("🔍 Buscando la pestaña de Cambridge...")
+        print("🔍 Buscando la pestaña de Cambridge y extrayendo respuestas...")
         
         encontrado = False
         handles = driver.window_handles
@@ -823,74 +821,54 @@ def main():
                 if "cambridgeone.org" in driver.current_url:
                     encontrado = True
                     break
-            except:
-                continue
+            except: continue
                 
         if not encontrado:
-            print("❌ ¡No estás en la pestaña de Cambridge One! Ve a la actividad y presiona ENTER de nuevo.")
+            print("❌ ¡No estás en la pestaña de Cambridge One!")
             continue
         
-        ejercicio_num = 0
-        seguir = True
+        # Extracción instantánea
+        data_dict, frame_elemento = get_ajax_data_directly(driver)
+        if not data_dict:
+            print("❌ No se encontró data en esta pestaña. Asegúrate de que el ejercicio haya cargado.")
+            continue
+            
+        estructura = []
+        if "LearningObjectInfo.xml" in data_dict:
+            estructura = parse_learning_object(data_dict["LearningObjectInfo.xml"])
+        elif "LearningObjectInfo.xml.xml" in data_dict:
+            estructura = parse_learning_object(data_dict["LearningObjectInfo.xml.xml"])
+            
+        if not estructura:
+            print("⚠️ No se detectaron pantallas. Prueba refrescando la página.")
+            continue
+            
+        print(f"\n✅ DATOS EXTRAÍDOS: {len(estructura)} pantallas encontradas")
+        print("=" * 60)
         
-        while seguir:
-            ejercicio_num += 1
-            print(f"\n{'='*50}")
-            print(f"📚 EJERCICIO #{ejercicio_num}")
-            print(f"{'='*50}")
+        for idx, pantalla in enumerate(estructura):
+            nombre = pantalla["archivo"]
+            tipo = pantalla["tipo"]
+            respuestas = []
+            if nombre in data_dict:
+                q = parse_question(data_dict[nombre], nombre, tipo)
+                if q:
+                    if "sub_preguntas" in q:
+                        for sub in q["sub_preguntas"]: respuestas.extend(sub["correctas"])
+                    else: respuestas.extend(q.get("correctas", []))
             
-            completado = resolver_ejercicio(driver)
+            respuestas = [r for r in respuestas if isinstance(r, str) and r.strip()]
             
-            if completado:
-                print(f"\n🎉 ¡Ejercicio #{ejercicio_num} COMPLETADO!")
-                
-                # Intentar ir al siguiente ejercicio
-                print("🔄 Buscando 'Next activity'...")
-                time.sleep(2)
-                next_activity_ok = click_next_activity(driver)
-                
-                if next_activity_ok:
-                    print("➡️  Navegando al siguiente ejercicio...")
-                    time.sleep(5)  # Dar tiempo para que cargue el nuevo ejercicio
-                    
-                    # Verificar que se cargó un nuevo ejercicio (tiene ajaxData)
-                    time.sleep(3)
-                    test_data, _ = get_ajax_data_directly(driver)
-                    if test_data:
-                        print("✅ Nuevo ejercicio detectado. Continuando...")
-                        continue  # Resolver el siguiente ejercicio
-                    else:
-                        print("⚠️ No se detectó un nuevo ejercicio. Puede ser una presentación.")
-                        # Intentar una vez más después de esperar
-                        time.sleep(5)
-                        test_data, _ = get_ajax_data_directly(driver)
-                        if test_data:
-                            continue
-                        else:
-                            print("⏹️ No hay más ejercicios con data extraíble.")
-                            seguir = False
-                else:
-                    print("⏹️ No se encontró botón 'Next activity'. Puede que hayas terminado la lección.")
-                    seguir = False
+            print(f"\n📄 PANTALLA {idx+1}/{len(estructura)} [{tipo}]")
+            if respuestas:
+                for i, r in enumerate(respuestas, 1):
+                    print(f"   {i}. {r}")
             else:
-                print(f"⚠️ No se pudo completar el ejercicio #{ejercicio_num}.")
-                print("   Puede ser una presentación o un tipo de ejercicio no soportado.")
-                
-                # Intentar avanzar de todas formas
-                print("🔄 Intentando ir al siguiente ejercicio...")
-                time.sleep(2)
-                next_activity_ok = click_next_activity(driver)
-                if next_activity_ok:
-                    print("➡️  Navegando al siguiente ejercicio...")
-                    time.sleep(5)
-                    continue
-                else:
-                    seguir = False
+                print("   (Pantalla de presentación o informativa - Sin respuestas)")
         
-        print("\n" + "=" * 50)
-        print(f"🏁 SESIÓN TERMINADA: {ejercicio_num} ejercicio(s) procesados")
-        print("=" * 50)
-        print("\n💡 Navega a otro ejercicio y presiona ENTER para continuar.")
+        print("\n" + "=" * 60)
+        print("🏁 Todas las respuestas han sido mostradas.")
+        print("=" * 60)
 
 if __name__ == "__main__":
     main()
