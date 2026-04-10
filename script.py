@@ -203,7 +203,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
     if not respuestas_planas:
         return False
         
-    js_code = """
+    js_code = r"""
     let answers = arguments[0];
     let callback = arguments[1];
     
@@ -411,7 +411,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
 
 def click_check_answers(driver, frame_elemento):
     """Hace click en el botón 'Check Answers' de Cambridge One."""
-    js_code = """
+    js_code = r"""
     let callback = arguments[0];
     async function doCheck() {
         function supremeClick(el) {
@@ -450,7 +450,7 @@ def click_check_answers(driver, frame_elemento):
 
 def click_forward(driver, frame_elemento):
     """Hace click en el botón 'Forward/Next' de Cambridge One."""
-    js_code = """
+    js_code = r"""
     let callback = arguments[0];
     async function doNext() {
         function supremeClick(el) {
@@ -535,7 +535,7 @@ def click_next_activity(driver):
     except:
         pass
     
-    js_code = """
+    js_code = r"""
     let callback = arguments[0];
     async function doNextActivity() {
         function supremeClick(el) {
@@ -596,7 +596,7 @@ def click_next_activity(driver):
 
 def click_next_button_bottom(driver, frame_elemento):
     """Hace click en el botón azul 'Next' que aparece al fondo de pantallas de presentación."""
-    js_code = """
+    js_code = r"""
     let callback = arguments[0];
     async function doNext() {
         function supremeClick(el) {
@@ -643,7 +643,7 @@ def detectar_pantalla_resultados(driver):
         pass
     
     # Buscar en ambos contextos
-    js_code = """
+    js_code = r"""
     let text = document.body ? document.body.innerText : '';
     return text.includes('You scored') || text.includes('Amazing') || 
            text.includes('Well done') || text.includes('Good try') ||
@@ -732,52 +732,41 @@ def resolver_ejercicio(driver):
     except: pass
     time.sleep(1)
     
-    # ===== AUTO-RESOLVER TODAS LAS PANTALLAS =====
+    # ===== SOLO MOSTRAR RESPUESTAS (AUTOMATIZACIÓN DESHABILITADA) =====
     for idx in range(total):
         pantalla = estructura[idx]
         respuestas = respuestas_por_pantalla[idx]
         
         if not respuestas:
-            print(f"  ⏭️  Pantalla {idx+1}/{total}: Presentación → Avanzando...")
-            # Intentar primero el forward, si no funciona, el botón "Next" azul
-            fwd_ok = click_forward(driver, frame_elemento)
-            if not fwd_ok:
-                click_next_button_bottom(driver, frame_elemento)
-            time.sleep(2)
-            _, frame_elemento = get_ajax_data_directly(driver)
+            print(f"\n  ⏭️  Pantalla {idx+1}/{total}: Presentación (Sin respuestas)")
+            input("     Presiona ENTER para ver la siguiente pantalla en la terminal...")
             continue
         
-        print(f"\n  🎯 Pantalla {idx+1}/{total}: Resolviendo ({len(respuestas)} respuestas)")
+        print(f"\n  🎯 Pantalla {idx+1}/{total}: Respuestas Correctas")
         for i, r in enumerate(respuestas, 1):
             print(f"     [{i}] {r}")
         
+        # --- CÓDIGO DE AUTOMATIZACIÓN COMENTADO (A PETICIÓN) ---
+        """
         # Paso 1: Llenar respuestas
         time.sleep(1)
         exito = resolver_pantalla_js(driver, frame_elemento, respuestas)
-        if exito:
-            print(f"     ✅ Respuestas ingresadas")
-        else:
-            print(f"     ⚠️ Posible fallo al ingresar respuestas")
         
         # Paso 2: Click en Check Answers
         time.sleep(1.5)
         check_ok = click_check_answers(driver, frame_elemento)
-        if check_ok:
-            print(f"     ✅ Check Answers clickeado")
-        else:
-            print(f"     ⚠️ No se encontró botón Check Answers")
         
         # Paso 3: Avanzar
-        time.sleep(3) # Antes 2
+        time.sleep(3)
         next_ok = click_forward(driver, frame_elemento)
-        if next_ok:
-            print(f"     ➡️  Avanzando...")
-        else:
-            # Intentar botón "Next" azul como fallback
-            click_next_button_bottom(driver, frame_elemento)
+        """
         
-        time.sleep(3.5) # Antes 2.5
+        input("\n     ✅ Respuestas mostradas. Presiona ENTER para ver la siguiente...")
+        # Intentamos obtener el frame de nuevo por si cambió al avanzar manualmente
         _, frame_elemento = get_ajax_data_directly(driver)
+    
+    print("\n🌟 ¡Has llegado al final de las respuestas para este ejercicio!")
+    return True
     
     # Verificar si llegamos a la pantalla de resultados
     time.sleep(2)
