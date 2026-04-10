@@ -789,21 +789,31 @@ def main():
     print("=" * 60)
     print("🤖 Bot Cambridge One - Resolución Automática Multi-Ejercicio")
     print("=" * 60)
-    print("⏳ Intentando conectar con el navegador (Brave)...")
+    print("⏳ Verificando conexión con Brave (puerto 9222)...")
+    
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(2)
+    result = sock.connect_ex(('127.0.0.1', 9222))
+    sock.close()
+
+    if result != 0:
+        print("\n❌ NO SE PUDO DETECTAR BRAVE EN MODO DEPURACION.")
+        print("💡 PASOS PARA ARREGLARLO:")
+        print("   1. Cierra TODAS las ventanas de Brave manualmente.")
+        print("   2. Ejecuta el archivo 'RESETEAR_BRAVE_Y_BOT.bat'.")
+        print("   3. Cuando se abra Brave, vuelve a ejecutar el bot.")
+        return
+
+    print("✅ Puerto 9222 detectado. Conectando Selenium...")
     options = Options()
     options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
-    
-    # Añadimos un pequeño timeout para que no se congele para siempre si Brave no está
     service = Service()
     
     try:
         driver = webdriver.Chrome(service=service, options=options)
-        # Forzar un comando simple para verificar la conexion real
-        driver.current_url
     except Exception as e:
-        print(f"\n❌ ERROR DE CONEXIÓN: {e}")
-        print("\n⚠️ No se pudo conectar a Brave en el puerto 9222.")
-        print("💡 SOLUCIÓN: Cierra Brave y usa 'RESETEAR_BRAVE_Y_BOT.bat' para abrirlo bien.")
+        print(f"\n❌ ERROR DE SELENIUM: {e}")
         return
     
     print("\n✅ ¡Conectado exitosamente a tu Brave principal!")
