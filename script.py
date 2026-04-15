@@ -484,7 +484,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 if (typeof target.click === 'function') target.click();
             } catch (e) {}
 
-            await new Promise(r => setTimeout(r, 250));
+            await new Promise(r => setTimeout(r, 120));
             if (getVisibleDropdownOptions(drop).length > 0) {
                 return true;
             }
@@ -530,13 +530,13 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
             if (typeof option.click === 'function') option.click();
         } catch (e) {}
 
-        await new Promise(r => setTimeout(r, 350));
+        await new Promise(r => setTimeout(r, 160));
         currentText = getDropdownDisplayText(drop);
         if (currentText === ansLow || currentText.includes(ansLow)) {
             return true;
         }
 
-        await new Promise(r => setTimeout(r, 350));
+        await new Promise(r => setTimeout(r, 160));
         currentText = getDropdownDisplayText(drop);
         if (currentText === ansLow || currentText.includes(ansLow)) {
             return true;
@@ -680,7 +680,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                     if (typeof target.click === 'function') target.click();
                 } catch (e) {}
 
-                await new Promise(r => setTimeout(r, 450));
+                await new Promise(r => setTimeout(r, 180));
                 if (didSpecificWordBankPlacementChange(item, item.top) || didWordBankSnapshotAdvance(beforeSnapshot, answerText)) {
                     return true;
                 }
@@ -768,7 +768,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 if (typeof target.click === 'function') target.click();
             } catch (e) {}
 
-            await new Promise(r => setTimeout(r, 450));
+            await new Promise(r => setTimeout(r, 180));
             if (didWordBankPlacementChange(answerText, beforeTop) || didWordBankSnapshotAdvance(beforeSnapshot, answerText)) {
                 return true;
             }
@@ -1122,7 +1122,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 }
             } catch (e) {}
 
-            await new Promise(r => setTimeout(r, 350));
+            await new Promise(r => setTimeout(r, 140));
             let after = getSortingSnapshot();
             if (after.poolItems.length < before.poolItems.length || after.filledCount > before.filledCount) {
                 return true;
@@ -1163,7 +1163,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 continue;
             }
 
-            await new Promise(r => setTimeout(r, 250));
+            await new Promise(r => setTimeout(r, 110));
             if (isSortingAnswerInCategory(categoryText, answerText)) {
                 return true;
             }
@@ -1229,7 +1229,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                     movedAny = true;
                 } catch (e) {}
 
-                await new Promise(r => setTimeout(r, 150));
+                await new Promise(r => setTimeout(r, 80));
             }
         }
 
@@ -1246,7 +1246,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
             if (isSortingAnswerInCategory(pair.category, pair.answer)) continue;
 
             await clickSortingAnswerInOrder(pair.answer);
-            await new Promise(r => setTimeout(r, 250));
+            await new Promise(r => setTimeout(r, 110));
         }
 
         let fullySolved = categorizedAnswers.every(pair => isSortingAnswerInCategory(pair.category, pair.answer));
@@ -1269,7 +1269,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 if (ok) {
                     movedThisPass = true;
                 }
-                await new Promise(r => setTimeout(r, 200));
+                await new Promise(r => setTimeout(r, 90));
             }
 
             if (categorizedAnswers.every(pair => isSortingAnswerInCategory(pair.category, pair.answer))) {
@@ -1335,7 +1335,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                     solvedCount++;
                     doneCount++;
                 }
-                await new Promise(r => setTimeout(r, 250));
+                await new Promise(r => setTimeout(r, 110));
             }
 
             if (solvedCount > 0 && solvedCount >= attempts) {
@@ -1440,7 +1440,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                         }
                         doneCount++;
                         ok = true;
-                        await new Promise(r => setTimeout(r, 400));
+                        await new Promise(r => setTimeout(r, 140));
                     }
                 }
             }
@@ -1467,7 +1467,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 doneCount++;
                 clickedCount++;
             }
-            await new Promise(r => setTimeout(r, 550));
+            await new Promise(r => setTimeout(r, 220));
         }
         if (clickedCount > 0 && clickedCount >= answers.length) { callback(true); return; }
 
@@ -1480,7 +1480,7 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 let ns = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
                 if(ns && ns.set){ ns.set.call(inp, answers[i]); } else { inp.value = answers[i]; }
                 ['input','change','blur'].forEach(ev => inp.dispatchEvent(new Event(ev, {bubbles:true})));
-                doneCount++; await new Promise(r => setTimeout(r,200));
+                doneCount++; await new Promise(r => setTimeout(r,90));
             }
             callback(doneCount > 0); return;
         }
@@ -1563,7 +1563,7 @@ def click_check_answers(driver, frame_elemento):
         
         if (btn) {
             supremeClick(btn);
-            await new Promise(r => setTimeout(r, 2000)); // Antes 1500
+            await new Promise(r => setTimeout(r, 700));
             callback(true);
         } else {
             callback(false);
@@ -1606,7 +1606,7 @@ def click_forward(driver, frame_elemento):
         
         if (btn) {
             supremeClick(btn);
-            await new Promise(r => setTimeout(r, 2500)); // Antes 1500
+            await new Promise(r => setTimeout(r, 850));
             callback(true);
         } else {
             callback(false);
@@ -1687,7 +1687,7 @@ def click_next_activity(driver):
         
         if (btn) {
             supremeClick(btn);
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, 850));
             callback(true);
         } else {
             callback(false);
@@ -1797,7 +1797,7 @@ def click_next_clickable_module(driver):
                     if (typeof opener.click === 'function') opener.click();
                 } catch (e) {}
 
-                await new Promise(r => setTimeout(r, 800));
+                await new Promise(r => setTimeout(r, 320));
                 visibleItems = Array.from(document.querySelectorAll('a.activity-name-container')).filter(isVisible);
                 if (visibleItems.length > 0) {
                     return true;
@@ -1842,7 +1842,7 @@ def click_next_clickable_module(driver):
         if (btn) {
             supremeClick(btn);
             if (typeof btn.click === 'function') btn.click();
-            await new Promise(r => setTimeout(r, 2200));
+            await new Promise(r => setTimeout(r, 900));
             callback(true);
             return;
         }
@@ -1853,7 +1853,7 @@ def click_next_clickable_module(driver):
             if (nextItem) {
                 supremeClick(nextItem);
                 if (typeof nextItem.click === 'function') nextItem.click();
-                await new Promise(r => setTimeout(r, 2500));
+                await new Promise(r => setTimeout(r, 1000));
                 callback(true);
                 return;
             }
@@ -1916,7 +1916,7 @@ def click_next_button_bottom(driver, frame_elemento):
         
         if (btn) {
             supremeClick(btn);
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise(r => setTimeout(r, 650));
             callback(true);
         } else {
             callback(false);
@@ -1966,6 +1966,130 @@ def detectar_pantalla_resultados(driver):
     return False
 
 
+def get_current_activity_label(driver):
+    """Obtiene el nombre visible de la actividad actual en Cambridge."""
+    try:
+        driver.switch_to.default_content()
+    except:
+        pass
+
+    js_code = r"""
+    let node = document.getElementById('selectedActivitySidebarBtn')
+            || document.querySelector('.open-sidebar.open-sidebar-btn')
+            || document.querySelector('.open-sidebar-btn');
+    if (node) {
+        return (node.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+    return (document.title || '').replace(/\s+/g, ' ').trim();
+    """
+
+    try:
+        return (driver.execute_script(js_code) or "").strip()
+    except:
+        return ""
+
+
+def get_screen_signature(driver):
+    """Devuelve una firma ligera del contenido visible para detectar cambios de pantalla."""
+    def _read_text():
+        try:
+            return driver.execute_script(
+                "return (document.body ? document.body.innerText : '').replace(/\\s+/g,' ').trim().slice(0, 1800);"
+            ) or ""
+        except:
+            return ""
+
+    try:
+        driver.switch_to.default_content()
+    except:
+        pass
+
+    parts = []
+    main_text = _read_text()
+    if main_text:
+        parts.append(main_text)
+
+    _, frame = get_ajax_data_directly(driver)
+    if frame:
+        try:
+            driver.switch_to.frame(frame)
+            frame_text = _read_text()
+            if frame_text and frame_text not in parts:
+                parts.append(frame_text)
+        except:
+            pass
+        finally:
+            try:
+                driver.switch_to.default_content()
+            except:
+                pass
+
+    return " || ".join(parts)
+
+
+def wait_for_screen_change(driver, previous_signature, timeout=2.2, poll_interval=0.08):
+    """Espera hasta que cambie el contenido visible o aparezca la pantalla final."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if detectar_pantalla_resultados(driver):
+            return True
+
+        current_signature = get_screen_signature(driver)
+        if current_signature and current_signature != previous_signature:
+            return True
+
+        time.sleep(poll_interval)
+
+    return detectar_pantalla_resultados(driver)
+
+
+def wait_for_data_or_results(driver, timeout=2.3, poll_interval=0.08):
+    """Espera datos extraibles del ejercicio o la pantalla de resultados."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if detectar_pantalla_resultados(driver):
+            return True, None, None
+
+        data_dict, frame_elemento = get_ajax_data_directly(driver)
+        if data_dict:
+            return False, data_dict, frame_elemento
+
+        time.sleep(poll_interval)
+
+    return detectar_pantalla_resultados(driver), None, None
+
+
+def wait_for_next_activity_ready(driver, previous_label="", previous_url="", timeout=7.0, poll_interval=0.12):
+    """Espera a que cargue la siguiente actividad o cambie el contexto actual."""
+    deadline = time.time() + timeout
+    previous_label = (previous_label or "").strip()
+    previous_url = (previous_url or "").strip()
+
+    while time.time() < deadline:
+        try:
+            current_url = driver.current_url
+        except:
+            current_url = ""
+
+        current_label = get_current_activity_label(driver)
+
+        if previous_url and current_url and current_url != previous_url:
+            return True
+        if previous_label and current_label and current_label != previous_label:
+            return True
+
+        if detectar_pantalla_resultados(driver):
+            return True
+
+        data_dict, _ = get_ajax_data_directly(driver)
+        if data_dict:
+            return True
+
+        time.sleep(poll_interval)
+
+    return False
+
+
 # =========================================
 # 🔹 RESOLVER UN EJERCICIO COMPLETO
 # =========================================
@@ -1975,21 +2099,18 @@ def resolver_ejercicio(driver):
     Retorna True si se completó exitosamente."""
     
     print("🔍 Extrayendo data del ejercicio...")
-    time.sleep(2)
+    on_results, data_dict, frame_elemento = wait_for_data_or_results(driver, timeout=1.2)
     
-    if detectar_pantalla_resultados(driver):
+    if on_results:
         print("  [OK] Pantalla de resultados detectada!")
         return True
-
-    data_dict, frame_elemento = get_ajax_data_directly(driver)
     
     if not data_dict:
         print("❌ No se encontró data. Esperando más tiempo...")
-        time.sleep(3)
-        if detectar_pantalla_resultados(driver):
+        on_results, data_dict, frame_elemento = wait_for_data_or_results(driver, timeout=1.8)
+        if on_results:
             print("  [OK] Pantalla de resultados detectada!")
             return True
-        data_dict, frame_elemento = get_ajax_data_directly(driver)
         if not data_dict:
             print("❌ No hay data disponible. Puede ser una pantalla sin ejercicio.")
             if detectar_pantalla_resultados(driver):
@@ -2029,10 +2150,10 @@ def resolver_ejercicio(driver):
     # Pre-scrolling para asegurar que todo cargue
     try: driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
     except: pass
-    time.sleep(1)
+    time.sleep(0.15)
     try: driver.execute_script("window.scrollTo(0, 0);")
     except: pass
-    time.sleep(1)
+    time.sleep(0.15)
     
     # ===== AUTO-RESOLVER TODAS LAS PANTALLAS =====
     for idx in range(total):
@@ -2046,10 +2167,11 @@ def resolver_ejercicio(driver):
         if not respuestas:
             print(f"  ⏭️  Pantalla {idx+1}/{total}: Presentación → Avanzando...")
             # Intentar primero el forward, si no funciona, el botón "Next" azul
+            previous_signature = get_screen_signature(driver)
             fwd_ok = click_forward(driver, frame_elemento)
             if not fwd_ok:
                 click_next_button_bottom(driver, frame_elemento)
-            time.sleep(2)
+            wait_for_screen_change(driver, previous_signature, timeout=1.8)
             if detectar_pantalla_resultados(driver):
                 print("  [OK] Pantalla de resultados detectada!")
                 return True
@@ -2061,7 +2183,7 @@ def resolver_ejercicio(driver):
             print(f"     [{i}] {r}")
         
         # Paso 1: Llenar respuestas
-        time.sleep(1)
+        time.sleep(0.15)
         exito = resolver_pantalla_js(driver, frame_elemento, respuestas)
         if exito:
             print(f"     ✅ Respuestas ingresadas")
@@ -2069,7 +2191,7 @@ def resolver_ejercicio(driver):
             print(f"     ⚠️ Posible fallo al ingresar respuestas")
         
         # Paso 2: Click en Check Answers
-        time.sleep(1.5)
+        time.sleep(0.18)
         check_ok = click_check_answers(driver, frame_elemento)
         if check_ok:
             print(f"     ✅ Check Answers clickeado")
@@ -2077,7 +2199,8 @@ def resolver_ejercicio(driver):
             print(f"     ⚠️ No se encontró botón Check Answers")
         
         # Paso 3: Avanzar
-        time.sleep(3) # Antes 2
+        previous_signature = get_screen_signature(driver)
+        time.sleep(0.18)
         next_ok = click_forward(driver, frame_elemento)
         if next_ok:
             print(f"     ➡️  Avanzando...")
@@ -2085,23 +2208,24 @@ def resolver_ejercicio(driver):
             # Intentar botón "Next" azul como fallback
             click_next_button_bottom(driver, frame_elemento)
         
-        time.sleep(3.5) # Antes 2.5
+        wait_for_screen_change(driver, previous_signature, timeout=2.4)
         if detectar_pantalla_resultados(driver):
             print("  [OK] Pantalla de resultados detectada!")
             return True
         _, frame_elemento = get_ajax_data_directly(driver)
     
     # Verificar si llegamos a la pantalla de resultados
-    time.sleep(2)
+    time.sleep(0.2)
     if detectar_pantalla_resultados(driver):
         print("  🌟 ¡Pantalla de resultados detectada!")
         return True
     
     # Si no se detectó automáticamente, intentar avanzar una vez más
+    previous_signature = get_screen_signature(driver)
     click_forward(driver, frame_elemento)
-    time.sleep(2)
+    wait_for_screen_change(driver, previous_signature, timeout=1.4)
     click_next_button_bottom(driver, frame_elemento)
-    time.sleep(2)
+    wait_for_screen_change(driver, previous_signature, timeout=1.4)
     
     return detectar_pantalla_resultados(driver)
 
@@ -2171,24 +2295,24 @@ def main():
                 
                 # Intentar ir al siguiente ejercicio
                 print("Buscando siguiente modulo/actividad clicable...")
-                time.sleep(2)
+                previous_label = get_current_activity_label(driver)
+                previous_url = driver.current_url
+                time.sleep(0.15)
                 next_activity_ok = click_next_clickable_module(driver)
                 
                 if next_activity_ok:
                     print("Navegando al siguiente ejercicio...")
-                    time.sleep(5)  # Dar tiempo para que cargue el nuevo ejercicio
+                    activity_ready = wait_for_next_activity_ready(driver, previous_label, previous_url, timeout=6.0)
                     
                     # Verificar que se cargó un nuevo ejercicio (tiene ajaxData)
-                    time.sleep(3)
-                    test_data, _ = get_ajax_data_directly(driver)
+                    test_data = activity_ready
                     if test_data:
                         print("Nuevo ejercicio detectado. Continuando...")
                         continue  # Resolver el siguiente ejercicio
                     else:
                         print("No se detecto un nuevo ejercicio. Puede ser una presentacion.")
                         # Intentar una vez más después de esperar
-                        time.sleep(5)
-                        test_data, _ = get_ajax_data_directly(driver)
+                        test_data = wait_for_next_activity_ready(driver, previous_label, previous_url, timeout=4.0)
                         if test_data:
                             continue
                         else:
@@ -2203,11 +2327,13 @@ def main():
                 
                 # Intentar avanzar de todas formas
                 print("Intentando ir al siguiente modulo/actividad...")
-                time.sleep(2)
+                previous_label = get_current_activity_label(driver)
+                previous_url = driver.current_url
+                time.sleep(0.15)
                 next_activity_ok = click_next_clickable_module(driver)
                 if next_activity_ok:
                     print("Navegando al siguiente ejercicio...")
-                    time.sleep(5)
+                    wait_for_next_activity_ready(driver, previous_label, previous_url, timeout=6.0)
                     continue
                 else:
                     seguir = False
