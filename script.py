@@ -1720,6 +1720,172 @@ def click_next_activity(driver):
     return result
 
 
+def click_next_clickable_module(driver):
+    """Hace click en el siguiente mÃ³dulo/actividad clicable."""
+    try:
+        driver.switch_to.default_content()
+    except:
+        pass
+
+    js_code = r"""
+    let callback = arguments[0];
+    async function doNextClickableModule() {
+        function supremeClick(el) {
+            if(!el) return;
+            ['pointerover','pointerenter','pointerdown','mousedown','pointerup','mouseup','click'].forEach(evt => {
+                el.dispatchEvent(new MouseEvent(evt, {bubbles:true, cancelable:true, view:window}));
+            });
+        }
+
+        function normalizeText(text) {
+            return (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        }
+
+        function isVisible(el) {
+            return !!el && el.offsetParent !== null;
+        }
+
+        function hasLockedIcon(el) {
+            if (!el || !el.querySelector) return false;
+            return !!el.querySelector(
+                '.nemo-lock, .locked, .lock-icon, [aria-label*="lock"], [title*="lock"], [class*="lock"]'
+            );
+        }
+
+        function findDirectNextButton() {
+            let selectors = [
+                'a[qid="resultScreen-1"]',
+                'button[qid="resultScreen-1"]',
+                'a.nextActivityBtn',
+                'button.nextActivityBtn',
+                '[class*="nextActivity"]',
+                '.btn.btn-primary'
+            ];
+
+            for (let selector of selectors) {
+                let node = document.querySelector(selector);
+                if (!node || !isVisible(node)) continue;
+
+                let text = normalizeText(node.innerText || node.textContent || '');
+                if (!text || text.includes('next activity') || text === 'next') {
+                    return node;
+                }
+            }
+
+            let allBtns = Array.from(document.querySelectorAll('a, button, [role="button"]')).filter(isVisible);
+            return allBtns.find(b => {
+                let text = normalizeText(b.textContent || '');
+                return text.includes('next activity') || text === 'next';
+            }) || null;
+        }
+
+        async function openSidebarIfNeeded() {
+            let visibleItems = Array.from(document.querySelectorAll('a.activity-name-container')).filter(isVisible);
+            if (visibleItems.length > 0) {
+                return true;
+            }
+
+            let openers = [
+                document.getElementById('selectedActivitySidebarBtn'),
+                document.querySelector('.open-sidebar-btn'),
+                document.querySelector('.toc-hamburger-btn')
+            ].filter(Boolean);
+
+            for (let opener of openers) {
+                try {
+                    supremeClick(opener);
+                    if (typeof opener.click === 'function') opener.click();
+                } catch (e) {}
+
+                await new Promise(r => setTimeout(r, 800));
+                visibleItems = Array.from(document.querySelectorAll('a.activity-name-container')).filter(isVisible);
+                if (visibleItems.length > 0) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        function findNextSidebarItem() {
+            let items = Array.from(document.querySelectorAll('a.activity-name-container')).filter(isVisible);
+            if (items.length === 0) return null;
+
+            let activeIndex = items.findIndex(item => item.classList.contains('active'));
+
+            if (activeIndex === -1) {
+                let currentTitle = normalizeText(
+                    (document.getElementById('selectedActivitySidebarBtn') && document.getElementById('selectedActivitySidebarBtn').textContent) || ''
+                ).replace(/\s+100%$/, '');
+
+                if (currentTitle) {
+                    activeIndex = items.findIndex(item => {
+                        let itemText = normalizeText(item.textContent || '').replace(/\s+100%$/, '');
+                        return itemText === currentTitle || itemText.includes(currentTitle) || currentTitle.includes(itemText);
+                    });
+                }
+            }
+
+            if (activeIndex === -1) return null;
+
+            for (let i = activeIndex + 1; i < items.length; i++) {
+                let item = items[i];
+                let text = normalizeText(item.textContent || '');
+                if (!text || hasLockedIcon(item)) continue;
+                return item;
+            }
+
+            return null;
+        }
+
+        let btn = findDirectNextButton();
+        if (btn) {
+            supremeClick(btn);
+            if (typeof btn.click === 'function') btn.click();
+            await new Promise(r => setTimeout(r, 2200));
+            callback(true);
+            return;
+        }
+
+        let sidebarReady = await openSidebarIfNeeded();
+        if (sidebarReady) {
+            let nextItem = findNextSidebarItem();
+            if (nextItem) {
+                supremeClick(nextItem);
+                if (typeof nextItem.click === 'function') nextItem.click();
+                await new Promise(r => setTimeout(r, 2500));
+                callback(true);
+                return;
+            }
+        }
+
+        callback(false);
+    }
+    doNextClickableModule();
+    """
+
+    driver.set_script_timeout(10)
+    result = False
+
+    try:
+        result = driver.execute_async_script(js_code)
+    except:
+        pass
+
+    if not result:
+        _, frame = get_ajax_data_directly(driver)
+        if frame:
+            try:
+                driver.switch_to.frame(frame)
+                result = driver.execute_async_script(js_code)
+                driver.switch_to.default_content()
+            except:
+                try: driver.switch_to.default_content()
+                except: pass
+
+    return result
+
+
 def click_next_button_bottom(driver, frame_elemento):
     """Hace click en el botón azul 'Next' que aparece al fondo de pantallas de presentación."""
     js_code = r"""
@@ -1811,14 +1977,24 @@ def resolver_ejercicio(driver):
     print("🔍 Extrayendo data del ejercicio...")
     time.sleep(2)
     
+    if detectar_pantalla_resultados(driver):
+        print("  [OK] Pantalla de resultados detectada!")
+        return True
+
     data_dict, frame_elemento = get_ajax_data_directly(driver)
     
     if not data_dict:
         print("❌ No se encontró data. Esperando más tiempo...")
         time.sleep(3)
+        if detectar_pantalla_resultados(driver):
+            print("  [OK] Pantalla de resultados detectada!")
+            return True
         data_dict, frame_elemento = get_ajax_data_directly(driver)
         if not data_dict:
             print("❌ No hay data disponible. Puede ser una pantalla sin ejercicio.")
+            if detectar_pantalla_resultados(driver):
+                print("  [OK] Pantalla de resultados detectada!")
+                return True
             return False
     
     estructura = []
@@ -1860,6 +2036,10 @@ def resolver_ejercicio(driver):
     
     # ===== AUTO-RESOLVER TODAS LAS PANTALLAS =====
     for idx in range(total):
+        if detectar_pantalla_resultados(driver):
+            print("  [OK] Pantalla de resultados detectada!")
+            return True
+
         pantalla = estructura[idx]
         respuestas = respuestas_por_pantalla[idx]
         
@@ -1870,6 +2050,9 @@ def resolver_ejercicio(driver):
             if not fwd_ok:
                 click_next_button_bottom(driver, frame_elemento)
             time.sleep(2)
+            if detectar_pantalla_resultados(driver):
+                print("  [OK] Pantalla de resultados detectada!")
+                return True
             _, frame_elemento = get_ajax_data_directly(driver)
             continue
         
@@ -1903,6 +2086,9 @@ def resolver_ejercicio(driver):
             click_next_button_bottom(driver, frame_elemento)
         
         time.sleep(3.5) # Antes 2.5
+        if detectar_pantalla_resultados(driver):
+            print("  [OK] Pantalla de resultados detectada!")
+            return True
         _, frame_elemento = get_ajax_data_directly(driver)
     
     # Verificar si llegamos a la pantalla de resultados
@@ -1984,9 +2170,9 @@ def main():
                 print(f"\n¡Ejercicio #{ejercicio_num} COMPLETADO!")
                 
                 # Intentar ir al siguiente ejercicio
-                print("Buscando 'Next activity'...")
+                print("Buscando siguiente modulo/actividad clicable...")
                 time.sleep(2)
-                next_activity_ok = click_next_activity(driver)
+                next_activity_ok = click_next_clickable_module(driver)
                 
                 if next_activity_ok:
                     print("Navegando al siguiente ejercicio...")
@@ -2009,16 +2195,16 @@ def main():
                             print("No hay mas ejercicios con data extraible.")
                             seguir = False
                 else:
-                    print("No se encontro boton 'Next activity'. Puede que hayas terminado la leccion.")
+                    print("No se encontro un siguiente modulo/actividad clicable. Puede que hayas terminado la leccion.")
                     seguir = False
             else:
                 print(f"No se pudo completar el ejercicio #{ejercicio_num}.")
                 print("   Puede ser una presentación o un tipo de ejercicio no soportado.")
                 
                 # Intentar avanzar de todas formas
-                print("Intentando ir al siguiente ejercicio...")
+                print("Intentando ir al siguiente modulo/actividad...")
                 time.sleep(2)
-                next_activity_ok = click_next_activity(driver)
+                next_activity_ok = click_next_clickable_module(driver)
                 if next_activity_ok:
                     print("Navegando al siguiente ejercicio...")
                     time.sleep(5)
