@@ -73,6 +73,33 @@ def get_all_text(node):
             parts.append(child.tail.strip())
     return " ".join(p for p in parts if p)
 
+def normalize_spaces(text):
+    return re.sub(r"\s+", " ", text or "").strip()
+
+def extract_choice_label(node):
+    if node is None:
+        return ""
+
+    text = normalize_spaces(get_all_text(node))
+    if text:
+        return text
+
+    # Algunos simpleChoice no tienen texto visible: solo una imagen con alt/title.
+    attr_candidates = ("aria-label", "alt", "title", "longdesc")
+
+    for attr in attr_candidates:
+        value = normalize_spaces(node.attrib.get(attr, ""))
+        if value:
+            return value
+
+    for descendant in node.xpath(".//*"):
+        for attr in attr_candidates:
+            value = normalize_spaces(descendant.attrib.get(attr, ""))
+            if value:
+                return value
+
+    return ""
+
 def unique_preserve_order(values):
     vistos = set()
     resultado = []
@@ -82,6 +109,103 @@ def unique_preserve_order(values):
         vistos.add(value)
         resultado.append(value)
     return resultado
+
+def normalize_text_entry_answer(value):
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+
+    # En algunos ejercicios Cambridge guarda "respuesta_correcta|verbo_base".
+    # Para rellenar el hueco necesitamos la primera forma, no toda la cadena.
+    if "|" in raw:
+        opciones = [parte.strip() for parte in raw.split("|") if parte.strip()]
+        if opciones:
+            return opciones[0]
+
+    return raw
+
+def encode_grouped_answer(group_index, answer):
+    return f"[[GROUP:{group_index}]] {answer}"
+
+def decode_grouped_answer(answer):
+    raw = (answer or "").strip()
+    match = re.match(r"^\[\[GROUP:(\d+)\]\]\s*(.*)$", raw)
+    if not match:
+        return None, raw
+    return int(match.group(1)), match.group(2).strip()
+
+def has_meaningful_text(text):
+    return bool(re.search(r"[A-Za-zÀ-ÿ0-9]", text or ""))
+
+def looks_like_dialogue_label(text):
+    raw = (text or "").strip()
+    if not raw:
+        return False
+
+    if raw.endswith(":"):
+        core = raw[:-1].strip()
+        if re.fullmatch(r"[A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+){0,2}", core):
+            return True
+
+    return False
+
+def extract_gap_categories(root, ns):
+    """Mapea cada gap a su categoria visible cuando el XML usa bloques por categoria."""
+    gap_to_category = {}
+    category_order = []
+
+    for p in root.findall(".//qti:div[@id='contentblock']//qti:p", ns):
+        category = ""
+        saw_meaningful_text_before_label = has_meaningful_text(p.text or "")
+        leading_labels = []
+
+        for node in list(p):
+            try:
+                local_name = etree.QName(node).localname.lower()
+            except Exception:
+                continue
+
+            if local_name == "gap":
+                break
+
+            if local_name in ("strong", "b") and not saw_meaningful_text_before_label:
+                text = get_all_text(node).strip()
+                if text:
+                    leading_labels.append(text)
+                    category = text
+                    continue
+
+            if has_meaningful_text(get_all_text(node)):
+                saw_meaningful_text_before_label = True
+
+            if has_meaningful_text(node.tail or ""):
+                saw_meaningful_text_before_label = True
+
+        if len(leading_labels) != 1:
+            continue
+
+        if looks_like_dialogue_label(category):
+            continue
+
+        if not category:
+            continue
+
+        gap_ids = []
+        for gap in p.findall(".//qti:gap", ns):
+            gap_id = gap.attrib.get("identifier") or gap.attrib.get("id") or ""
+            if gap_id:
+                gap_ids.append(gap_id)
+
+        if not gap_ids:
+            continue
+
+        if category not in category_order:
+            category_order.append(category)
+
+        for gap_id in gap_ids:
+            gap_to_category[gap_id] = category
+
+    return gap_to_category, category_order
 
 def parse_question(xml_string, nombre, tipo):
     xml_string = clean_xml(xml_string)
@@ -152,7 +276,7 @@ def parse_question(xml_string, nombre, tipo):
                 seen_choice_responses.add(resp_id)
             opciones, mapa = [], {}
             for choice in interaction.findall("qti:simpleChoice", ns):
-                texto = get_all_text(choice).strip()
+                texto = extract_choice_label(choice)
                 ident = choice.attrib.get("identifier", "")
                 if texto:
                     opciones.append(texto)
@@ -209,6 +333,7 @@ def parse_question(xml_string, nombre, tipo):
     gap_interactions = root.findall(".//qti:gapMatchInteraction", ns)
     if gap_interactions:
         palabras_orden = []
+        gap_to_category, category_order = extract_gap_categories(root, ns)
         seen_gap_responses = set()
         for interaction in gap_interactions:
             resp_id = interaction.attrib.get("responseIdentifier", "")
@@ -238,6 +363,7 @@ def parse_question(xml_string, nombre, tipo):
                 correct_nodes = root.findall(".//qti:correctResponse//qti:value", ns)
 
             respuestas_por_gap = {}
+            respuestas_por_categoria = {}
             for val in correct_nodes:
                 par = (val.text or "").strip()
                 partes = par.split()
@@ -250,6 +376,25 @@ def parse_question(xml_string, nombre, tipo):
                     continue
 
                 respuestas_por_gap.setdefault(target_gap_id, []).append(texto)
+                categoria = gap_to_category.get(target_gap_id, "").strip()
+                if categoria:
+                    respuestas_por_categoria.setdefault(categoria, []).append(texto)
+
+            if respuestas_por_categoria and category_order:
+                respuestas_categorizadas = []
+                for categoria in category_order:
+                    textos = unique_preserve_order(respuestas_por_categoria.get(categoria, []))
+                    for texto in textos:
+                        respuestas_categorizadas.append(f"{categoria} -> {texto}")
+
+                if respuestas_categorizadas:
+                    return {
+                        "archivo": nombre,
+                        "tipo": tipo,
+                        "pregunta": instruccion.strip(),
+                        "opciones": respuestas_categorizadas,
+                        "correctas": respuestas_categorizadas
+                    }
 
             for gap_id in orden_gaps:
                 opciones_gap = unique_preserve_order(respuestas_por_gap.get(gap_id, []))
@@ -267,7 +412,8 @@ def parse_question(xml_string, nombre, tipo):
         for decl in root.findall(".//qti:responseDeclaration", ns):
             ident = decl.attrib.get("identifier", "")
             val_node = decl.find(".//qti:correctResponse//qti:value", ns)
-            if val_node is not None: correctas_dict[ident] = (val_node.text or "").strip()
+            if val_node is not None:
+                correctas_dict[ident] = normalize_text_entry_answer(val_node.text or "")
         seen_text_entries = set()
         correctas = []
         for interaction in text_entry_interactions:
@@ -280,7 +426,7 @@ def parse_question(xml_string, nombre, tipo):
 
     opciones, mapa = [], {}
     for choice in root.xpath(".//*[local-name()='simpleChoice' or local-name()='simpleAssociableChoice']"):
-        texto = get_all_text(choice)
+        texto = extract_choice_label(choice)
         ident = choice.attrib.get("identifier", "")
         if texto: opciones.append(texto)
         mapa[ident] = texto
@@ -337,6 +483,133 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
 
     function normalizeText(text) {
         return (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    }
+
+    function parseGroupedAnswer(answerText) {
+        let raw = (answerText || '').trim();
+        let match = raw.match(/^\[\[GROUP:(\d+)\]\]\s*(.*)$/);
+        if (!match) {
+            return { groupIndex: null, answer: raw };
+        }
+
+        let idx = parseInt(match[1], 10);
+        return {
+            groupIndex: Number.isFinite(idx) ? idx : null,
+            answer: (match[2] || '').trim()
+        };
+    }
+
+    function hasTextEntryMarkers(answerText) {
+        return /\{[^{}]*\}/.test(answerText || '');
+    }
+
+    function getTextEntryFillText(answerText) {
+        let raw = (answerText || '').replace(/\u00a0/g, ' ');
+        if (!raw) return '';
+
+        if (!hasTextEntryMarkers(raw)) {
+            return raw.trim();
+        }
+
+        // Cambridge usa marcas como {a}ssume para indicar letras visibles
+        // y el bot solo debe escribir la parte faltante: "ssume".
+        return raw.replace(/\{[^{}]*\}/g, '').replace(/\s+/g, ' ').trim();
+    }
+
+    function setTextEntryValue(inp, value) {
+        if (!inp) return;
+
+        if (inp.isContentEditable) {
+            inp.textContent = value;
+            return;
+        }
+
+        let proto = null;
+        if ((inp.tagName || '').toUpperCase() === 'TEXTAREA') {
+            proto = window.HTMLTextAreaElement && window.HTMLTextAreaElement.prototype;
+        } else {
+            proto = window.HTMLInputElement && window.HTMLInputElement.prototype;
+        }
+
+        let descriptor = proto && Object.getOwnPropertyDescriptor(proto, 'value');
+        if (descriptor && descriptor.set) {
+            descriptor.set.call(inp, value);
+        } else {
+            inp.value = value;
+        }
+    }
+
+    function getTextEntryValue(inp) {
+        if (!inp) return '';
+        if (inp.isContentEditable) {
+            return (inp.textContent || inp.innerText || '').trim();
+        }
+        return (inp.value || '').trim();
+    }
+
+    function dispatchTextEntryEvents(inp) {
+        if (!inp) return;
+        ['input','change','keyup','blur'].forEach(ev => {
+            inp.dispatchEvent(new Event(ev, {bubbles:true}));
+        });
+    }
+
+    async function waitForTextEntryValue(inp, expectedValue, timeoutMs) {
+        let expected = normalizeText(expectedValue);
+        if (!inp || !expected) return false;
+
+        let deadline = Date.now() + (timeoutMs || 800);
+        let stableTicks = 0;
+
+        while (Date.now() < deadline) {
+            let current = normalizeText(getTextEntryValue(inp));
+            if (current === expected) {
+                stableTicks++;
+                if (stableTicks >= 2) {
+                    return true;
+                }
+            } else {
+                stableTicks = 0;
+            }
+
+            await new Promise(r => setTimeout(r, 60));
+        }
+
+        return normalizeText(getTextEntryValue(inp)) === expected;
+    }
+
+    async function fillTextEntryInput(inp, rawAnswer) {
+        let fillText = getTextEntryFillText(rawAnswer);
+
+        if (!fillText && hasTextEntryMarkers(rawAnswer)) {
+            return true;
+        }
+        if (!fillText) {
+            return false;
+        }
+
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                inp.focus();
+                inp.dispatchEvent(new Event('focus', {bubbles:true}));
+            } catch (e) {}
+
+            setTextEntryValue(inp, '');
+            dispatchTextEntryEvents(inp);
+            await new Promise(r => setTimeout(r, 50));
+
+            setTextEntryValue(inp, fillText);
+            dispatchTextEntryEvents(inp);
+
+            let ok = await waitForTextEntryValue(inp, fillText, 850);
+            if (ok) {
+                return true;
+            }
+
+            await new Promise(r => setTimeout(r, 90));
+        }
+
+        return false;
     }
 
     function isVisible(el) {
@@ -667,6 +940,48 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
             || afterSnapshot.matchingCount > beforeSnapshot.matchingCount;
     }
 
+    function getWordBankStateSignature(answerText) {
+        let snapshot = getWordBankPlacementSnapshot(answerText);
+        let candidates = collectWordBankCandidates(answerText).slice(0, 5);
+        let tops = candidates.map(c => Math.round(c.rect.top)).join(',');
+        return [
+            snapshot.filledCount,
+            snapshot.matchingCount,
+            tops
+        ].join('|');
+    }
+
+    async function waitForWordBankAdvance(answerText, beforeSnapshot, beforeTop, timeoutMs) {
+        let deadline = Date.now() + (timeoutMs || 900);
+        let sawAdvance = false;
+        let stableTicks = 0;
+        let lastSignature = '';
+
+        while (Date.now() < deadline) {
+            let advanced = didWordBankPlacementChange(answerText, beforeTop)
+                || didWordBankSnapshotAdvance(beforeSnapshot, answerText);
+
+            if (advanced) {
+                sawAdvance = true;
+                let signature = getWordBankStateSignature(answerText);
+                if (signature && signature === lastSignature) {
+                    stableTicks++;
+                } else {
+                    stableTicks = 0;
+                    lastSignature = signature;
+                }
+
+                if (stableTicks >= 2) {
+                    return true;
+                }
+            }
+
+            await new Promise(r => setTimeout(r, 60));
+        }
+
+        return sawAdvance;
+    }
+
     async function clickSpecificWordBankAnswer(answerText) {
         let items = getVisibleWordBankItems(answerText);
         if (items.length === 0) return false;
@@ -680,8 +995,8 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                     if (typeof target.click === 'function') target.click();
                 } catch (e) {}
 
-                await new Promise(r => setTimeout(r, 180));
-                if (didSpecificWordBankPlacementChange(item, item.top) || didWordBankSnapshotAdvance(beforeSnapshot, answerText)) {
+                let advanced = await waitForWordBankAdvance(answerText, beforeSnapshot, item.top, 950);
+                if (advanced || didSpecificWordBankPlacementChange(item, item.top)) {
                     return true;
                 }
             }
@@ -768,8 +1083,8 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 if (typeof target.click === 'function') target.click();
             } catch (e) {}
 
-            await new Promise(r => setTimeout(r, 180));
-            if (didWordBankPlacementChange(answerText, beforeTop) || didWordBankSnapshotAdvance(beforeSnapshot, answerText)) {
+            let advanced = await waitForWordBankAdvance(answerText, beforeSnapshot, beforeTop, 950);
+            if (advanced || didWordBankPlacementChange(answerText, beforeTop)) {
                 return true;
             }
         }
@@ -825,12 +1140,38 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
         let aria = normalizeText((el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) || '');
         if (aria) return aria;
 
+        let imageLike = el.querySelector && el.querySelector('img[alt], img[title], img[longdesc], [aria-label]');
+        if (imageLike) {
+            let imageLabel = normalizeText(
+                (imageLike.getAttribute && (
+                    imageLike.getAttribute('aria-label')
+                    || imageLike.getAttribute('alt')
+                    || imageLike.getAttribute('title')
+                    || imageLike.getAttribute('longdesc')
+                )) || ''
+            );
+            if (imageLabel) return imageLabel;
+        }
+
         let input = getAssociatedInput(el);
         if (input) {
             let label = (input.labels && input.labels[0]) || (input.closest && input.closest('label'));
             if (label && label !== el) {
                 let labelText = normalizeText(label.innerText || label.textContent || '');
                 if (labelText) return labelText;
+
+                let labelImage = label.querySelector && label.querySelector('img[alt], img[title], img[longdesc], [aria-label]');
+                if (labelImage) {
+                    let labelImageText = normalizeText(
+                        (labelImage.getAttribute && (
+                            labelImage.getAttribute('aria-label')
+                            || labelImage.getAttribute('alt')
+                            || labelImage.getAttribute('title')
+                            || labelImage.getAttribute('longdesc')
+                        )) || ''
+                    );
+                    if (labelImageText) return labelImageText;
+                }
             }
         }
 
@@ -889,20 +1230,51 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
             'tr'
         ];
 
+        let candidates = [];
+        let seenGroups = new Set();
+
+        function getAncestorDistance(node, ancestor) {
+            let distance = 0;
+            let current = node;
+            while (current && current !== ancestor) {
+                current = current.parentElement;
+                distance++;
+            }
+            return current === ancestor ? distance : 9999;
+        }
+
         for (let sel of selectors) {
             let group = el.closest && el.closest(sel);
-            if (!group) continue;
+            if (!group || seenGroups.has(group)) continue;
+            seenGroups.add(group);
 
             let count = Array.from(
                 group.querySelectorAll('label, [role="radio"], [role="checkbox"], .option, .choice, input[type="radio"], input[type="checkbox"]')
             ).filter(isVisible).length;
 
-            if (count >= 2 && count <= 20) {
-                if (!group.dataset.choiceGroupKey) {
-                    group.dataset.choiceGroupKey = 'choice-group-' + Math.random().toString(36).slice(2, 10);
-                }
-                return group.dataset.choiceGroupKey;
+            if (count < 2 || count > 20) continue;
+
+            let rect = group.getBoundingClientRect ? group.getBoundingClientRect() : { width: 0, height: 0 };
+            candidates.push({
+                group: group,
+                count: count,
+                distance: getAncestorDistance(el, group),
+                area: Math.max(rect.width || 0, 1) * Math.max(rect.height || 0, 1)
+            });
+        }
+
+        if (candidates.length > 0) {
+            candidates.sort((a, b) => {
+                if (a.count !== b.count) return a.count - b.count;
+                if (a.distance !== b.distance) return a.distance - b.distance;
+                return a.area - b.area;
+            });
+
+            let bestGroup = candidates[0].group;
+            if (!bestGroup.dataset.choiceGroupKey) {
+                bestGroup.dataset.choiceGroupKey = 'choice-group-' + Math.random().toString(36).slice(2, 10);
             }
+            return bestGroup.dataset.choiceGroupKey;
         }
 
         let parent = el.parentElement;
@@ -1307,13 +1679,25 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
             .map(a => (typeof a === 'string' ? a.trim() : ''))
             .filter(Boolean);
 
-        let categorizedAnswers = rawAnswers
-            .map(parseCategorizedAnswer)
+        let answerMetas = rawAnswers
+            .map(parseGroupedAnswer)
+            .filter(meta => meta && meta.answer);
+
+        let categorizedAnswers = answerMetas
+            .map(meta => parseCategorizedAnswer(meta.answer))
             .filter(Boolean);
 
-        let plainAnswers = rawAnswers.map(a => {
-            let parsed = parseCategorizedAnswer(a);
-            return parsed ? parsed.answer : a;
+        let plainAnswers = answerMetas.map(meta => {
+            let parsed = parseCategorizedAnswer(meta.answer);
+            return parsed ? parsed.answer : meta.answer;
+        });
+
+        let choiceAnswers = answerMetas.map(meta => {
+            let parsed = parseCategorizedAnswer(meta.answer);
+            return {
+                answer: parsed ? parsed.answer : meta.answer,
+                groupIndex: meta.groupIndex
+            };
         });
 
         answers = plainAnswers;
@@ -1390,12 +1774,23 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 groupOrder.push(opt.groupKey);
             }
 
-            for (let i = 0; i < answers.length; i++) {
-                let ansLow = normalizeText(answers[i]);
+            function getGroupRank(opt) {
+                return groupOrderMap.has(opt.groupKey) ? groupOrderMap.get(opt.groupKey) : 9999;
+            }
+
+            function isExpectedGroup(opt, targetGroupIndex) {
+                if (targetGroupIndex === null || targetGroupIndex === undefined) return true;
+                return getGroupRank(opt) === targetGroupIndex;
+            }
+
+            for (let i = 0; i < choiceAnswers.length; i++) {
+                let answerMeta = choiceAnswers[i];
+                let ansLow = normalizeText(answerMeta.answer);
                 if (!ansLow) continue;
 
                 let matches = radioOpts.filter(opt => {
                     if (!(opt.text === ansLow || opt.text.includes(ansLow) || ansLow.includes(opt.text))) return false;
+                    if (!isExpectedGroup(opt, answerMeta.groupIndex)) return false;
 
                     let uniqueNode = opt.input || opt.roleNode || opt.node;
                     if (usedChoiceNodes.has(uniqueNode)) return false;
@@ -1410,6 +1805,15 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 if (matches.length === 0) {
                     matches = radioOpts.filter(opt => {
                         if (!(opt.text === ansLow || opt.text.includes(ansLow) || ansLow.includes(opt.text))) return false;
+                        if (!isExpectedGroup(opt, answerMeta.groupIndex)) return false;
+                        let uniqueNode = opt.input || opt.roleNode || opt.node;
+                        return !usedChoiceNodes.has(uniqueNode);
+                    });
+                }
+
+                if (matches.length === 0) {
+                    matches = radioOpts.filter(opt => {
+                        if (!(opt.text === ansLow || opt.text.includes(ansLow) || ansLow.includes(opt.text))) return false;
                         let uniqueNode = opt.input || opt.roleNode || opt.node;
                         return !usedChoiceNodes.has(uniqueNode);
                     });
@@ -1420,8 +1824,13 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                     let bExact = b.text === ansLow ? 0 : 1;
                     if (aExact !== bExact) return aExact - bExact;
 
-                    let aGroupRank = groupOrderMap.has(a.groupKey) ? groupOrderMap.get(a.groupKey) : 9999;
-                    let bGroupRank = groupOrderMap.has(b.groupKey) ? groupOrderMap.get(b.groupKey) : 9999;
+                    let aGroupRank = getGroupRank(a);
+                    let bGroupRank = getGroupRank(b);
+                    if (answerMeta.groupIndex !== null && answerMeta.groupIndex !== undefined) {
+                        let aDistance = Math.abs(aGroupRank - answerMeta.groupIndex);
+                        let bDistance = Math.abs(bGroupRank - answerMeta.groupIndex);
+                        if (aDistance !== bDistance) return aDistance - bDistance;
+                    }
                     if (aGroupRank !== bGroupRank) return aGroupRank - bGroupRank;
 
                     let aSelected = isChoiceSelected(a.node) ? 1 : 0;
@@ -1467,22 +1876,24 @@ def resolver_pantalla_js(driver, frame_elemento, respuestas_planas):
                 doneCount++;
                 clickedCount++;
             }
-            await new Promise(r => setTimeout(r, 220));
+            await new Promise(r => setTimeout(r, 100));
         }
         if (clickedCount > 0 && clickedCount >= answers.length) { callback(true); return; }
 
         // ===== 5: TEXT INPUTS =====
         let tIn = Array.from(document.querySelectorAll('input[type="text"],textarea,[contenteditable="true"]')).filter(e => e.offsetParent !== null && !e.readOnly && !e.disabled);
         if (tIn.length > 0 && tIn.length >= answers.length) {
+            let filledCount = 0;
             for(let i=0; i<answers.length; i++){
                 let inp = tIn[i];
-                inp.focus(); inp.dispatchEvent(new Event('focus', {bubbles:true}));
-                let ns = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
-                if(ns && ns.set){ ns.set.call(inp, answers[i]); } else { inp.value = answers[i]; }
-                ['input','change','blur'].forEach(ev => inp.dispatchEvent(new Event(ev, {bubbles:true})));
-                doneCount++; await new Promise(r => setTimeout(r,90));
+                let ok = await fillTextEntryInput(inp, answers[i]);
+                if (ok) {
+                    doneCount++;
+                    filledCount++;
+                }
+                await new Promise(r => setTimeout(r, 70));
             }
-            callback(doneCount > 0); return;
+            callback(filledCount >= answers.length); return;
         }
 
         // ===== 6: SELECT NATIVO =====
@@ -1745,11 +2156,59 @@ def click_next_clickable_module(driver):
             return !!el && el.offsetParent !== null;
         }
 
+        function isSidebarVisible(el) {
+            if (!el) return false;
+            let style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+            if (style) {
+                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                    return false;
+                }
+            }
+            if (el.offsetParent !== null) return true;
+            if (typeof el.getClientRects === 'function' && el.getClientRects().length > 0) return true;
+            let rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+            return !!rect && rect.width > 0 && rect.height > 0;
+        }
+
         function hasLockedIcon(el) {
-            if (!el || !el.querySelector) return false;
-            return !!el.querySelector(
-                '.nemo-lock, .locked, .lock-icon, [aria-label*="lock"], [title*="lock"], [class*="lock"]'
-            );
+            if (!el) return false;
+
+            let selfText = normalizeText((el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) || '');
+            let lockLabel = /\blocked\b|\block icon\b/.test(selfText);
+            if (lockLabel) return true;
+
+            let nodes = [el];
+            if (el.querySelectorAll) {
+                nodes.push(...Array.from(el.querySelectorAll('*')));
+            }
+
+            for (let node of nodes) {
+                if (!node || !node.classList) continue;
+                let classes = Array.from(node.classList).map(c => c.toLowerCase());
+                if (classes.some(c => c === 'locked' || c === 'lock' || c === 'lock-icon' || c === 'nemo-lock')) {
+                    return true;
+                }
+
+                let aria = normalizeText((node.getAttribute && (node.getAttribute('aria-label') || node.getAttribute('title'))) || '');
+                if (/\blocked\b|\block icon\b/.test(aria)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        function cleanActivityText(text) {
+            return normalizeText((text || '').replace(/\s*\d+%$/i, ''));
+        }
+
+        function isCompletedActivity(item) {
+            let text = normalizeText(item && (item.innerText || item.textContent || ''));
+            let percentMatch = text.match(/(\d+)%$/);
+            if (percentMatch) {
+                return parseInt(percentMatch[1], 10) >= 100;
+            }
+            return false;
         }
 
         function findDirectNextButton() {
@@ -1780,7 +2239,7 @@ def click_next_clickable_module(driver):
         }
 
         async function openSidebarIfNeeded() {
-            let visibleItems = Array.from(document.querySelectorAll('a.activity-name-container')).filter(isVisible);
+            let visibleItems = Array.from(document.querySelectorAll('a.activity-name-container')).filter(isSidebarVisible);
             if (visibleItems.length > 0) {
                 return true;
             }
@@ -1798,17 +2257,41 @@ def click_next_clickable_module(driver):
                 } catch (e) {}
 
                 await new Promise(r => setTimeout(r, 320));
-                visibleItems = Array.from(document.querySelectorAll('a.activity-name-container')).filter(isVisible);
+                visibleItems = Array.from(document.querySelectorAll('a.activity-name-container')).filter(isSidebarVisible);
                 if (visibleItems.length > 0) {
                     return true;
                 }
             }
 
-            return false;
+            return !!document.querySelector('.toc-accordian.lesson-view, .sidebar, .sidebar-sticky');
+        }
+
+        function getCardActivities(card) {
+            if (!card) return [];
+            return Array.from(card.querySelectorAll('a.activity-name-container')).filter(item => {
+                let text = cleanActivityText(item.textContent || '');
+                return !!text;
+            });
+        }
+
+        function pickBestActivity(items) {
+            let candidates = (items || []).filter(item => item && !hasLockedIcon(item));
+            if (candidates.length === 0) return null;
+
+            let unfinished = candidates.filter(item => !item.classList.contains('active') && !isCompletedActivity(item));
+            if (unfinished.length > 0) return unfinished[0];
+
+            let nonActive = candidates.filter(item => !item.classList.contains('active'));
+            if (nonActive.length > 0) return nonActive[0];
+
+            return candidates[0];
         }
 
         function findNextSidebarItem() {
-            let items = Array.from(document.querySelectorAll('a.activity-name-container')).filter(isVisible);
+            let items = Array.from(document.querySelectorAll('a.activity-name-container')).filter(item => {
+                let text = cleanActivityText(item.textContent || '');
+                return !!text;
+            });
             if (items.length === 0) return null;
 
             let activeIndex = items.findIndex(item => item.classList.contains('active'));
@@ -1828,11 +2311,101 @@ def click_next_clickable_module(driver):
 
             if (activeIndex === -1) return null;
 
+            let unfinishedAfter = [];
             for (let i = activeIndex + 1; i < items.length; i++) {
                 let item = items[i];
-                let text = normalizeText(item.textContent || '');
+                let text = cleanActivityText(item.textContent || '');
+                if (!text || hasLockedIcon(item)) continue;
+                if (!isCompletedActivity(item)) {
+                    unfinishedAfter.push(item);
+                }
+            }
+
+            if (unfinishedAfter.length > 0) {
+                return unfinishedAfter[0];
+            }
+
+            for (let i = activeIndex + 1; i < items.length; i++) {
+                let item = items[i];
+                let text = cleanActivityText(item.textContent || '');
                 if (!text || hasLockedIcon(item)) continue;
                 return item;
+            }
+
+            return null;
+        }
+
+        function findCurrentCard() {
+            let active = document.querySelector('a.activity-name-container.active');
+            if (active && active.closest) {
+                let card = active.closest('.card');
+                if (card) return card;
+            }
+
+            let currentTitle = cleanActivityText(
+                (document.getElementById('selectedActivitySidebarBtn') && document.getElementById('selectedActivitySidebarBtn').textContent) || ''
+            );
+            if (!currentTitle) return null;
+
+            let cards = Array.from(document.querySelectorAll('.toc-accordian.lesson-view .card'));
+            for (let card of cards) {
+                let items = Array.from(card.querySelectorAll('a.activity-name-container'));
+                let match = items.find(item => {
+                    let text = cleanActivityText(item.textContent || '');
+                    return text === currentTitle || text.includes(currentTitle) || currentTitle.includes(text);
+                });
+                if (match) return card;
+            }
+
+            return null;
+        }
+
+        async function ensureCardExpanded(card) {
+            if (!card) return false;
+
+            let btn = card.querySelector('.toggable-btn');
+            if (!btn) {
+                return getCardActivities(card).length > 0;
+            }
+
+            let expanded = (btn.getAttribute('aria-expanded') || '').toLowerCase() === 'true';
+            if (expanded && getCardActivities(card).length > 0) {
+                return true;
+            }
+
+            try {
+                supremeClick(btn);
+                if (typeof btn.click === 'function') btn.click();
+            } catch (e) {}
+
+            let deadline = Date.now() + 1200;
+            while (Date.now() < deadline) {
+                expanded = (btn.getAttribute('aria-expanded') || '').toLowerCase() === 'true';
+                let items = getCardActivities(card);
+                if (expanded && items.length > 0) {
+                    return true;
+                }
+                await new Promise(r => setTimeout(r, 80));
+            }
+
+            return getCardActivities(card).length > 0;
+        }
+
+        async function findNextActivityAcrossCards() {
+            let cards = Array.from(document.querySelectorAll('.toc-accordian.lesson-view .card'));
+            if (cards.length === 0) return null;
+
+            let currentCard = findCurrentCard();
+            let startIndex = currentCard ? cards.indexOf(currentCard) + 1 : 0;
+            if (startIndex < 0) startIndex = 0;
+
+            for (let i = startIndex; i < cards.length; i++) {
+                let card = cards[i];
+                let ready = await ensureCardExpanded(card);
+                if (!ready) continue;
+
+                let target = pickBestActivity(getCardActivities(card));
+                if (target) return target;
             }
 
             return null;
@@ -1854,6 +2427,15 @@ def click_next_clickable_module(driver):
                 supremeClick(nextItem);
                 if (typeof nextItem.click === 'function') nextItem.click();
                 await new Promise(r => setTimeout(r, 1000));
+                callback(true);
+                return;
+            }
+
+            let nextCardItem = await findNextActivityAcrossCards();
+            if (nextCardItem) {
+                supremeClick(nextCardItem);
+                if (typeof nextCardItem.click === 'function') nextCardItem.click();
+                await new Promise(r => setTimeout(r, 1100));
                 callback(true);
                 return;
             }
@@ -2027,6 +2609,67 @@ def get_screen_signature(driver):
     return " || ".join(parts)
 
 
+def get_current_screen_index(driver, frame_elemento=None):
+    """Lee la pantalla actual del progreso superior de Cambridge (1-based)."""
+    js_code = r"""
+    function readCurrentStep() {
+        let current = document.querySelector('li.step.current');
+        if (current) {
+            let text = (current.innerText || current.textContent || '').replace(/\s+/g, ' ').trim();
+            let match = text.match(/\d+/);
+            if (match) return parseInt(match[0], 10);
+        }
+
+        let srItems = Array.from(document.querySelectorAll('.sr-only'));
+        for (let node of srItems) {
+            let text = (node.innerText || node.textContent || '').replace(/\s+/g, ' ').trim();
+            let match = text.match(/^Exercise\s+(\d+)\s+of\s+\d+/i);
+            if (match) return parseInt(match[1], 10);
+        }
+
+        let doneCount = document.querySelectorAll('li.step.done').length;
+        if (doneCount > 0) return doneCount + 1;
+
+        return null;
+    }
+    return readCurrentStep();
+    """
+
+    try:
+        driver.switch_to.default_content()
+    except:
+        pass
+
+    result = None
+    target_frame = frame_elemento
+    if target_frame is None:
+        _, target_frame = get_ajax_data_directly(driver)
+
+    if target_frame:
+        try:
+            driver.switch_to.frame(target_frame)
+            result = driver.execute_script(js_code)
+        except:
+            result = None
+        finally:
+            try:
+                driver.switch_to.default_content()
+            except:
+                pass
+
+    if result is None:
+        try:
+            result = driver.execute_script(js_code)
+        except:
+            result = None
+
+    try:
+        value = int(result)
+        return value if value > 0 else None
+    except:
+        return None
+
+
 def wait_for_screen_change(driver, previous_signature, timeout=2.2, poll_interval=0.08):
     """Espera hasta que cambie el contenido visible o aparezca la pantalla final."""
     deadline = time.time() + timeout
@@ -2041,6 +2684,36 @@ def wait_for_screen_change(driver, previous_signature, timeout=2.2, poll_interva
         time.sleep(poll_interval)
 
     return detectar_pantalla_resultados(driver)
+
+
+def guard_screen_transition(driver, previous_signature, timeout=2.4, extra_timeout=3.6):
+    """Confirma que Cambridge realmente avanzó antes de consumir la siguiente respuesta."""
+    changed = wait_for_screen_change(driver, previous_signature, timeout=timeout)
+    if changed:
+        return True
+
+    print("     [WAIT] Cambridge sigue en la misma pantalla; esperando sincronizacion...")
+    return wait_for_screen_change(driver, previous_signature, timeout=extra_timeout, poll_interval=0.1)
+
+
+def advance_current_screen(driver, frame_elemento, previous_signature, allow_bottom_fallback=True):
+    """Intenta avanzar y solo retorna True cuando la pantalla realmente cambió."""
+    advanced = click_forward(driver, frame_elemento)
+    if advanced:
+        print("     ➡️  Avanzando...")
+    elif allow_bottom_fallback:
+        click_next_button_bottom(driver, frame_elemento)
+
+    changed = guard_screen_transition(driver, previous_signature, timeout=2.4, extra_timeout=3.8)
+    if changed:
+        return True
+
+    print("     [WAIT] Reintentando avance en la misma pantalla...")
+    advanced = click_forward(driver, frame_elemento)
+    if not advanced and allow_bottom_fallback:
+        click_next_button_bottom(driver, frame_elemento)
+
+    return guard_screen_transition(driver, previous_signature, timeout=2.6, extra_timeout=4.2)
 
 
 def wait_for_data_or_results(driver, timeout=2.3, poll_interval=0.08):
@@ -2136,8 +2809,9 @@ def resolver_ejercicio(driver):
             q = parse_question(data_dict[nombre], nombre, tipo)
             if q:
                 if "sub_preguntas" in q:
-                    for sub in q["sub_preguntas"]:
-                        respuestas.extend(sub["correctas"])
+                    for sub_idx, sub in enumerate(q["sub_preguntas"]):
+                        for correcta in sub.get("correctas", []):
+                            respuestas.append(encode_grouped_answer(sub_idx, correcta))
                 else:
                     respuestas.extend(q.get("correctas", []))
         respuestas = [r for r in respuestas if isinstance(r, str) and r.strip()]
@@ -2154,9 +2828,18 @@ def resolver_ejercicio(driver):
     try: driver.execute_script("window.scrollTo(0, 0);")
     except: pass
     time.sleep(0.15)
+
+    current_screen_number = get_current_screen_index(driver, frame_elemento)
+    if current_screen_number is None:
+        idx = 0
+        print("ℹ️ No se pudo leer la pantalla actual. Empezando desde la pantalla 1.")
+    else:
+        idx = max(0, min(total - 1, current_screen_number - 1))
+        if idx > 0:
+            print(f"ℹ️ Retomando desde la pantalla {idx + 1} de {total}.")
     
     # ===== AUTO-RESOLVER TODAS LAS PANTALLAS =====
-    for idx in range(total):
+    while idx < total:
         if detectar_pantalla_resultados(driver):
             print("  [OK] Pantalla de resultados detectada!")
             return True
@@ -2168,19 +2851,21 @@ def resolver_ejercicio(driver):
             print(f"  ⏭️  Pantalla {idx+1}/{total}: Presentación → Avanzando...")
             # Intentar primero el forward, si no funciona, el botón "Next" azul
             previous_signature = get_screen_signature(driver)
-            fwd_ok = click_forward(driver, frame_elemento)
-            if not fwd_ok:
-                click_next_button_bottom(driver, frame_elemento)
-            wait_for_screen_change(driver, previous_signature, timeout=1.8)
+            changed = advance_current_screen(driver, frame_elemento, previous_signature)
             if detectar_pantalla_resultados(driver):
                 print("  [OK] Pantalla de resultados detectada!")
                 return True
+            if not changed:
+                print("     [WARN] La pantalla no avanzo. Deteniendo para no desalinear respuestas.")
+                return False
             _, frame_elemento = get_ajax_data_directly(driver)
+            idx += 1
             continue
         
         print(f"\n  🎯 Pantalla {idx+1}/{total}: Resolviendo ({len(respuestas)} respuestas)")
         for i, r in enumerate(respuestas, 1):
-            print(f"     [{i}] {r}")
+            _, display_answer = decode_grouped_answer(r)
+            print(f"     [{i}] {display_answer}")
         
         # Paso 1: Llenar respuestas
         time.sleep(0.15)
@@ -2201,18 +2886,15 @@ def resolver_ejercicio(driver):
         # Paso 3: Avanzar
         previous_signature = get_screen_signature(driver)
         time.sleep(0.18)
-        next_ok = click_forward(driver, frame_elemento)
-        if next_ok:
-            print(f"     ➡️  Avanzando...")
-        else:
-            # Intentar botón "Next" azul como fallback
-            click_next_button_bottom(driver, frame_elemento)
-        
-        wait_for_screen_change(driver, previous_signature, timeout=2.4)
+        changed = advance_current_screen(driver, frame_elemento, previous_signature)
         if detectar_pantalla_resultados(driver):
             print("  [OK] Pantalla de resultados detectada!")
             return True
+        if not changed:
+            print("     [WARN] La pantalla no avanzo. Deteniendo para no desalinear respuestas.")
+            return False
         _, frame_elemento = get_ajax_data_directly(driver)
+        idx += 1
     
     # Verificar si llegamos a la pantalla de resultados
     time.sleep(0.2)
